@@ -80,7 +80,7 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
     });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(initialWidth, initialHeight, false);
-    renderer.setClearColor(0x000000, 0);
+    renderer.setClearColor(0x050814, fullscreen ? 1 : 0);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.2;
@@ -147,8 +147,30 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
     group.add(galaxies);
 
     const positionAttr = galaxyGeo.getAttribute('position') as any;
-    const galaxyCenters = [new THREE.Vector3(-3.5, 0, 0), new THREE.Vector3(3.5, 0, 0)];
+    const galaxyCenters = [new THREE.Vector3(-3.8, -0.6, 0), new THREE.Vector3(3.8, 0.6, 0)];
     const galaxyTargets = [galaxyCenters[0].clone(), galaxyCenters[1].clone()];
+    const galaxyOffset = [new THREE.Vector3(-1.0, 0.6, 0), new THREE.Vector3(1.0, -0.6, 0)];
+    const defaultTargets = [galaxyCenters[0].clone(), galaxyCenters[1].clone()];
+
+    const coreGeo = new THREE.SphereGeometry(0.55, 24, 24);
+    const coreMats = [
+      new THREE.MeshBasicMaterial({
+        color: 0xff5efb,
+        transparent: true,
+        opacity: 0.9,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+      new THREE.MeshBasicMaterial({
+        color: 0x3fd8ff,
+        transparent: true,
+        opacity: 0.9,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    ];
+    const cores = coreMats.map((mat) => new THREE.Mesh(coreGeo, mat));
+    cores.forEach((core) => group.add(core));
 
     const starCount = 1100;
     const starPositions = new Float32Array(starCount * 3);
@@ -379,8 +401,8 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
         const sorted = [...infos].sort((a, b) => a.id.localeCompare(b.id));
         const a = sorted[0];
         const b = sorted[1];
-        galaxyTargets[0].copy(toWorld(a, bounds));
-        galaxyTargets[1].copy(toWorld(b, bounds));
+        galaxyTargets[0].copy(toWorld(a, bounds)).add(galaxyOffset[0]);
+        galaxyTargets[1].copy(toWorld(b, bounds)).add(galaxyOffset[1]);
 
         const ax = a.x + a.width / 2;
         const ay = a.y + a.height / 2;
@@ -391,29 +413,62 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
         const mergeTarget = THREE.MathUtils.clamp(1 - pixelDist / (avgSize * 1.6), 0, 1);
         mergeValue += (mergeTarget - mergeValue) * 0.08;
       } else {
-        galaxyTargets[0].set(-3.5, 0, 0);
-        galaxyTargets[1].set(3.5, 0, 0);
+        galaxyTargets[0].copy(defaultTargets[0]);
+        galaxyTargets[1].copy(defaultTargets[1]);
         mergeValue += (0 - mergeValue) * 0.08;
       }
 
       galaxyCenters[0].lerp(galaxyTargets[0], 0.06);
       galaxyCenters[1].lerp(galaxyTargets[1], 0.06);
 
+      const coreScale = 0.9 + mergeValue * 0.9;
+      cores.forEach((core, idx) => {
+        core.position.copy(galaxyCenters[idx]);
+        core.scale.setScalar(coreScale);
+        (coreMats[idx] as any).opacity = 0.65 + mergeValue * 0.35;
+      });
+
       for (let i = 0; i < particleCount; i++) {
         const g = galaxyOf[i];
         const center = galaxyCenters[g];
         const other = galaxyCenters[1 - g];
-        const r = radiusOf[i];
-        const angle = angleOf[i] + t * speedOf[i] * motionScale + r * 0.35;
+        const baseRadius = radiusOf[i];
+        const coreAttract = (0.12 + mergeValue * 0.55) * (1 - baseRadius / maxRadius);
+        const r = Math.max(
+          0.05,
+          baseRadius * (1 - coreAttract * 0.55) +
+            Math.sin(t * 0.9 + i * 0.02) * coreAttract * 0.4,
+        );
+        const angle =
+          angleOf[i] +
+          t * speedOf[i] * (1 + coreAttract * 1.4) * motionScale +
+          r * 0.38;
         const arm = armOf[i];
 
-        const localX = Math.cos(angle + arm) * r;
-        const localY = Math.sin(angle + arm) * r * 0.6;
-        const localZ = heightOf[i] + Math.sin(t * 0.7 + angle) * 0.15 * motionScale;
+        let localX = Math.cos(angle + arm) * r;
+        let localY = Math.sin(angle + arm) * r * 0.6;
+        let localZ =
+          heightOf[i] * (1 - coreAttract * 0.7) +
+          Math.sin(t * 0.7 + angle) * 0.18 * motionScale;
 
-        const pull = mergeValue * (1 - r / maxRadius) * 0.85;
-        const x = center.x + localX + (other.x - center.x) * pull;
-        const y = center.y + localY + (other.y - center.y) * pull;
+        const dx = other.x - center.x;
+        const dy = other.y - center.y;
+        const dz = other.z - center.z;
+        const invDist = 1 / (Math.hypot(dx, dy, dz) || 1);
+        const dirX = dx * invDist;
+        const dirY = dy * invDist;
+        const dirZ = dz * invDist;
+
+        const pull = mergeValue * (1 - baseRadius / maxRadius) * 0.7;
+        const tail = mergeValue * Math.pow(baseRadius / maxRadius, 1.6) * 2.6;
+        const tailOsc = 0.6 + 0.4 * Math.sin(t * 0.8 + arm + baseRadius * 0.4);
+
+        localX += dirX * tail * tailOsc;
+        localY += dirY * tail * tailOsc * 0.8;
+        localZ += dirZ * tail * 0.2;
+
+        const x = center.x + localX + dx * pull;
+        const y = center.y + localY + dy * pull;
         const z = center.z + localZ;
 
         const idx = i * 3;
@@ -454,6 +509,8 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
       starsGeo.dispose();
       galaxyMat.dispose();
       starsMat.dispose();
+      coreGeo.dispose();
+      coreMats.forEach((mat) => mat.dispose());
       renderer.dispose();
     };
   }, [fullscreen, reduced, seed, startEpoch, useMultiWindow]);

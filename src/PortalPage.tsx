@@ -23,7 +23,8 @@ export const PortalPage = () => {
       <div className="noise" aria-hidden />
       <div className="fixed inset-0 -z-10 opacity-95">
         <MultiWindowPortal fullscreen showBadge={false} />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_15%,rgba(255,94,251,0.18),transparent_45%),radial-gradient(circle_at_80%_80%,rgba(63,216,255,0.16),transparent_50%)] mix-blend-screen" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_5%,rgba(124,91,255,0.18),transparent_55%),radial-gradient(circle_at_85%_75%,rgba(255,94,251,0.16),transparent_60%),radial-gradient(circle_at_45%_90%,rgba(63,216,255,0.14),transparent_65%)] mix-blend-screen" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,transparent_35%,rgba(5,8,20,0.9)_85%)]" />
       </div>
 
       <div className="relative z-10 mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center gap-6 px-6 text-center">
