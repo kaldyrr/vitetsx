@@ -497,6 +497,9 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
     };
 
     const corePositions = Array.from({ length: maxCores }, () => new THREE.Vector3());
+    const pairMid = new THREE.Vector3();
+    const pairAxis = new THREE.Vector3();
+    const pairPerp = new THREE.Vector3();
     let mergeValue = 0;
 
     const render = () => {
@@ -524,6 +527,20 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
         }
       }
 
+      const pairMode = useMultiWindow && coreCount === 2;
+      let pairSeparation = 0;
+      let pairSizeX = 0;
+      let pairSizeY = 0;
+      if (pairMode) {
+        pairMid.copy(corePositions[0]).add(corePositions[1]).multiplyScalar(0.5);
+        pairAxis.copy(corePositions[1]).sub(corePositions[0]);
+        pairSeparation = pairAxis.length() + 0.0001;
+        pairAxis.multiplyScalar(1 / pairSeparation);
+        pairPerp.set(-pairAxis.y, pairAxis.x, 0);
+        pairSizeX = THREE.MathUtils.clamp(pairSeparation * 0.55, 4.5, initialSpan * 1.45);
+        pairSizeY = pairSizeX * 0.6;
+      }
+
       if (coreCount >= 2) {
         let minDist2 = Infinity;
         for (let i = 0; i < coreCount; i++) {
@@ -542,6 +559,7 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
         mergeValue += (0 - mergeValue) * 0.06;
       }
 
+      const pairAlpha = pairMode ? THREE.MathUtils.clamp(1 - mergeValue, 0, 1) : 0;
       const coreScale = 0.8 + mergeValue * 0.9;
       for (let i = 0; i < maxCores; i++) {
         const mesh = coreMeshes[i];
@@ -560,10 +578,14 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
       const bridgeStrength = 0.036 * mergeValue * motionScale;
       const damping = useMultiWindow ? 0.981 : 0.987;
       const maxSpeed = (useMultiWindow ? 0.18 : 0.22) * motionScale;
-      const boundary = initialSpan * (useMultiWindow ? 1.22 : 1.7);
+      const boundary = pairMode
+        ? THREE.MathUtils.clamp(pairSeparation * 0.55, initialSpan * 1.22, initialSpan * 1.7)
+        : initialSpan * (useMultiWindow ? 1.22 : 1.7);
       const boundaryPull = useMultiWindow ? 0.01 : 0.002;
       const boundaryDamp = useMultiWindow ? 0.82 : 0.92;
       const noiseAmp = (useMultiWindow ? 0.0018 : 0.0025) * motionScale;
+      const pairFollow = (0.0026 + pairAlpha * 0.0012) * pairAlpha * motionScale;
+      const pairFlow = (0.0075 + pairAlpha * 0.002) * pairAlpha * motionScale;
 
       for (let i = 0; i < particleCount; i++) {
         const idx = i * 3;
@@ -603,10 +625,11 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
         const attract = baseAttract / (1.2 + minD2);
 
         const orbitDir = homeOf[i] % 2 === 0 ? 1 : -1;
-        const orbitX = (-dy / dist) * orbitStrength * orbitDir;
-        const orbitY = (dx / dist) * orbitStrength * orbitDir;
+        const orbitBlend = 1 - pairAlpha * 0.85;
+        const orbitX = (-dy / dist) * orbitStrength * orbitDir * orbitBlend;
+        const orbitY = (dx / dist) * orbitStrength * orbitDir * orbitBlend;
 
-        const noise = Math.sin(t * 0.6 + phaseOf[i]) * noiseAmp;
+        const noise = Math.sin(t * 0.6 + phaseOf[i]) * noiseAmp * (1 - pairAlpha * 0.65);
         vx = vx * damping + dx * attract + orbitX + noise;
         vy = vy * damping + dy * attract + orbitY + noise;
         vz = vz * damping + dz * attract * 0.6 + Math.cos(t * 0.5 + phaseOf[i]) * 0.0015;
@@ -629,6 +652,28 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
           vx += odx * bridge;
           vy += ody * bridge;
           vz += odz * bridge * 0.6;
+        }
+
+        if (pairMode && pairAlpha > 0) {
+          const phase = phaseOf[i] + t * (0.8 + (i % 7) * 0.03) * orbitDir;
+          const s = Math.sin(phase);
+          const c = Math.cos(phase);
+          const u = s;
+          const v = s * c; // [-0.5..0.5]
+          const du = c;
+          const dv = c * c - s * s;
+
+          const targetX = pairMid.x + pairAxis.x * (u * pairSizeX) + pairPerp.x * (v * pairSizeY * 2);
+          const targetY = pairMid.y + pairAxis.y * (u * pairSizeX) + pairPerp.y * (v * pairSizeY * 2);
+          const targetZ = Math.sin(phase * 0.9) * 0.25;
+
+          const tx = pairAxis.x * (du * pairSizeX) + pairPerp.x * (dv * pairSizeY * 2);
+          const ty = pairAxis.y * (du * pairSizeX) + pairPerp.y * (dv * pairSizeY * 2);
+          const tLen = Math.sqrt(tx * tx + ty * ty) + 0.0001;
+
+          vx += (targetX - px) * pairFollow + (tx / tLen) * pairFlow;
+          vy += (targetY - py) * pairFollow + (ty / tLen) * pairFlow;
+          vz += (targetZ - pz) * pairFollow * 0.8;
         }
 
         const speed2 = vx * vx + vy * vy + vz * vz;
