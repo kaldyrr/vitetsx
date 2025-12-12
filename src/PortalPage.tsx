@@ -19,7 +19,7 @@ export const PortalPage = () => {
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#050814]">
+    <div className="relative min-h-screen overflow-hidden">
       <div className="fixed inset-0 -z-10 bg-[#050814]">
         <MultiWindowPortal fullscreen showBadge={false} />
       </div>
