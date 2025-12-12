@@ -5,7 +5,6 @@ import { AboutSection } from './components/sections/AboutSection';
 import { ProjectsSection } from './components/sections/ProjectsSection';
 import { ExperimentsSection } from './components/sections/ExperimentsSection';
 import { ContactSection } from './components/sections/ContactSection';
-import { MultiWindowPortal } from './components/visuals/MultiWindowPortal';
 import { Modal } from './components/ui/Modal';
 import { Toast } from './components/ui/Toast';
 import { projects } from './data/projects';
@@ -30,7 +29,6 @@ function App() {
   const scrollTo = useScrollToSection();
   const sectionIds = useMemo(() => navSections.map((s) => s.id), []);
   const activeSection = useScrollSpy(sectionIds);
-  const portalMode = useMemo(() => new URLSearchParams(window.location.search).get('portal') === '1', []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -51,12 +49,6 @@ function App() {
 
   return (
     <>
-      {portalMode ? (
-        <div className="pointer-events-none fixed inset-0 z-0 opacity-80">
-          <MultiWindowPortal fullscreen showBadge={false} />
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_40%_15%,rgba(255,94,251,0.14),transparent_50%),radial-gradient(circle_at_70%_80%,rgba(63,216,255,0.12),transparent_55%)]" />
-        </div>
-      ) : null}
       <MainLayout
         sections={navSections}
         activeSection={activeSection}

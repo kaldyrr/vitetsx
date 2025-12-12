@@ -5,8 +5,8 @@ export const experiments: Experiment[] = [
     id: 'portal',
     title: 'Неоновый портал',
     description:
-      'Трёхмерная сцена, которая «склеивается» между окнами. Открой пару окон и разложи их рядом — получится цельный портал.',
-    label: 'webgl / multi-window',
+      'Глубокая WebGL‑сцена с мягким неоном и вихрем частиц. Есть отдельная страница с порталом во весь экран.',
+    label: 'webgl / portal',
     intensity: 'bold',
   },
   {

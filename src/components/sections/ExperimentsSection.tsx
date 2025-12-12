@@ -7,11 +7,9 @@ import { MultiWindowPortal } from '../visuals/MultiWindowPortal';
 import { NeonButton } from '../ui/NeonButton';
 
 export const ExperimentsSection = () => {
-  const openPortalWindow = () => {
-    const url = new URL(window.location.href);
-    url.searchParams.set('portal', '1');
-    url.hash = '#experiments';
-    window.open(url.toString(), '_blank', 'popup,width=620,height=440');
+  const openPortalPage = () => {
+    const portalUrl = `${import.meta.env.BASE_URL}portal.html`;
+    window.open(portalUrl, '_blank');
   };
 
   return (
@@ -22,7 +20,7 @@ export const ExperimentsSection = () => {
       <SectionTitle
         label="Песочница"
         title="Эксперименты"
-        description="Небольшие визуальные исследования: Canvas‑узлы, CSS‑сетка и WebGL‑портал, который живёт сразу в нескольких окнах."
+        description="Небольшие визуальные исследования: Canvas‑узлы, CSS‑сетка и WebGL‑портал с мягким неоном."
       />
       <div className="grid gap-6 md:grid-cols-3">
         {experiments.map((exp, index) => (
@@ -55,11 +53,11 @@ export const ExperimentsSection = () => {
                   <div className="absolute bottom-4 left-4 flex flex-wrap gap-2">
                     <NeonButton
                       variant="ghost"
-                      onClick={openPortalWindow}
+                      onClick={openPortalPage}
                       className="px-4 py-2 text-[11px]"
-                      aria-label="Открыть окно портала"
+                      aria-label="Открыть портал на отдельной странице"
                     >
-                      Открыть окно
+                      Открыть портал
                     </NeonButton>
                   </div>
                 </div>

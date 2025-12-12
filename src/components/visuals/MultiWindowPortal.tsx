@@ -1,15 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { usePrefersReducedMotion } from '../../hooks/usePrefersReducedMotion';
-
-type WindowInfo = {
-  id: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  ts: number;
-};
 
 type Props = {
   className?: string;
@@ -17,7 +8,6 @@ type Props = {
   showBadge?: boolean;
 };
 
-const CHANNEL = 'neon-portal-windows';
 const SEED_KEY = 'neon-portal:seed';
 const START_KEY = 'neon-portal:start';
 
@@ -31,16 +21,9 @@ const mulberry32 = (seed: number) => {
   };
 };
 
-export const MultiWindowPortal = ({
-  className = '',
-  fullscreen = false,
-  showBadge = true,
-}: Props) => {
+export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadge = true }: Props) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const reduced = usePrefersReducedMotion();
-  const [windowCount, setWindowCount] = useState(1);
-
-  const useMultiWindow = fullscreen && !reduced;
 
   const seed = useMemo(() => {
     const fromStorage = Number(localStorage.getItem(SEED_KEY));
@@ -85,105 +68,146 @@ export const MultiWindowPortal = ({
     renderer.setClearColor(0x000000, 0);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.15;
+    renderer.toneMappingExposure = 1.2;
 
     const scene = new THREE.Scene();
-    scene.fog = new THREE.Fog(0x050814, 12, 48);
+    scene.fog = new THREE.FogExp2(0x050814, 0.03);
 
-    const camera = new THREE.PerspectiveCamera(52, initialWidth / initialHeight, 0.1, 200);
-    camera.position.set(0, 0, 18);
+    const camera = new THREE.PerspectiveCamera(55, initialWidth / initialHeight, 0.1, 200);
+    camera.position.set(0, 0, 14);
 
-    const ambient = new THREE.AmbientLight(0xffffff, 0.5);
-    const pink = new THREE.PointLight(0xff5efb, 1.4, 120);
-    pink.position.set(12, 8, 14);
-    const cyan = new THREE.PointLight(0x3fd8ff, 1.2, 120);
-    cyan.position.set(-14, -8, 12);
-    scene.add(ambient, pink, cyan);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+    const key = new THREE.DirectionalLight(0xff5efb, 1.2);
+    key.position.set(8, 6, 10);
+    const fill = new THREE.DirectionalLight(0x3fd8ff, 1.0);
+    fill.position.set(-8, -6, 8);
+    scene.add(ambient, key, fill);
 
     const group = new THREE.Group();
     scene.add(group);
 
-    const geometries = [
-      new THREE.IcosahedronGeometry(1.1, 0),
-      new THREE.OctahedronGeometry(1.2, 0),
-      new THREE.TetrahedronGeometry(1.0, 0),
-    ];
+    const portalUniforms = {
+      uTime: { value: 0 },
+      uColor1: { value: new THREE.Color(0xff5efb) },
+      uColor2: { value: new THREE.Color(0x3fd8ff) },
+      uColor3: { value: new THREE.Color(0x7c5bff) },
+    };
+
+    const portalMat = new THREE.ShaderMaterial({
+      uniforms: portalUniforms,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        uniform vec3 uColor1;
+        uniform vec3 uColor2;
+        uniform vec3 uColor3;
+        varying vec2 vUv;
+
+        float hash(vec2 p){
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+        }
+
+        void main() {
+          vec2 uv = vUv * 2.0 - 1.0;
+          float r = length(uv);
+          float a = atan(uv.y, uv.x);
+
+          float swirl = sin(a * 6.0 + uTime * 1.4) * 0.08;
+          float waves = sin((r * 12.0 - uTime * 2.2) + a * 3.0) * 0.06;
+          float core = smoothstep(0.9, 0.0, r + swirl + waves);
+
+          float grain = (hash(uv * 18.0 + uTime) - 0.5) * 0.08;
+          float edge = smoothstep(0.55, 0.1, r);
+          float alpha = core * edge + grain;
+
+          float hueMix = 0.5 + 0.5 * sin(a * 2.0 + uTime * 0.7);
+          vec3 color = mix(uColor1, uColor2, hueMix);
+          color = mix(color, uColor3, smoothstep(0.25, 0.9, r));
+
+          gl_FragColor = vec4(color, clamp(alpha, 0.0, 1.0));
+        }
+      `,
+    });
+
+    const portalGeo = new THREE.CircleGeometry(3.9, 160);
+    const portalMesh = new THREE.Mesh(portalGeo, portalMat);
+    group.add(portalMesh);
+
+    const rimGeo = new THREE.TorusGeometry(4.2, 0.09, 32, 240);
+    const rimMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      emissive: 0xff5efb,
+      emissiveIntensity: 2.0,
+      roughness: 0.25,
+      metalness: 0.8,
+      transparent: true,
+      opacity: 0.95,
+    });
+    const rim = new THREE.Mesh(rimGeo, rimMat);
+    rim.rotation.x = Math.PI / 2;
+    group.add(rim);
+
+    const rim2Geo = new THREE.TorusGeometry(3.6, 0.06, 32, 240);
+    const rim2Mat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      emissive: 0x3fd8ff,
+      emissiveIntensity: 1.7,
+      roughness: 0.28,
+      metalness: 0.75,
+      transparent: true,
+      opacity: 0.85,
+    });
+    const rim2 = new THREE.Mesh(rim2Geo, rim2Mat);
+    rim2.rotation.x = Math.PI / 2;
+    rim2.rotation.z = Math.PI / 6;
+    group.add(rim2);
+
+    const orbGeo = new THREE.SphereGeometry(0.18, 20, 20);
     const palette = [0xff5efb, 0x3fd8ff, 0x7c5bff, 0xffffff];
+    const orbs: { mesh: any; base: any; axis: any; speed: number; phase: number }[] = [];
 
-    const shards: {
-      mesh: any;
-      base: any;
-      axis: any;
-      spin: number;
-      wave: number;
-      phase: number;
-      drift: number;
-    }[] = [];
-
-    for (let i = 0; i < 86; i++) {
-      const geo = geometries[Math.floor(rand() * geometries.length)];
+    for (let i = 0; i < 70; i++) {
       const color = palette[Math.floor(rand() * palette.length)];
       const mat = new THREE.MeshStandardMaterial({
         color,
         emissive: color,
-        emissiveIntensity: 0.9,
-        roughness: 0.25,
-        metalness: 0.65,
+        emissiveIntensity: 1.35,
+        roughness: 0.35,
+        metalness: 0.25,
         transparent: true,
-        opacity: 0.92,
+        opacity: 0.95,
       });
-      const mesh = new THREE.Mesh(geo, mat);
-
-      const radius = 4.5 + rand() * 11.5;
+      const mesh = new THREE.Mesh(orbGeo, mat);
+      const radius = 2.6 + rand() * 7.8;
       const theta = rand() * Math.PI * 2;
-      const phi = Math.acos(2 * rand() - 1);
-      const base = new THREE.Vector3(
-        radius * Math.sin(phi) * Math.cos(theta),
-        radius * Math.sin(phi) * Math.sin(theta),
-        radius * Math.cos(phi),
-      );
+      const z = (rand() - 0.5) * 5.2;
+      const base = new THREE.Vector3(Math.cos(theta) * radius, Math.sin(theta) * radius, z);
       mesh.position.copy(base);
-      const scale = 0.25 + rand() * 0.9;
+      const scale = 0.6 + rand() * 1.8;
       mesh.scale.setScalar(scale);
-      mesh.rotation.set(rand() * Math.PI, rand() * Math.PI, rand() * Math.PI);
-
-      shards.push({
+      orbs.push({
         mesh,
         base,
         axis: new THREE.Vector3(rand() - 0.5, rand() - 0.5, rand() - 0.5).normalize(),
-        spin: 0.2 + rand() * 1.2,
-        wave: 0.4 + rand() * 1.0,
+        speed: 0.35 + rand() * 1.25,
         phase: rand() * Math.PI * 2,
-        drift: 0.5 + rand() * 1.5,
       });
       group.add(mesh);
     }
 
-    const ringGeo = new THREE.TorusGeometry(4.2, 0.18, 28, 160);
-    const ringMat = new THREE.MeshBasicMaterial({
-      color: 0xff5efb,
-      transparent: true,
-      opacity: 0.9,
-    });
-    const ring = new THREE.Mesh(ringGeo, ringMat);
-    ring.rotation.x = Math.PI / 2;
-    group.add(ring);
-
-    const ring2Geo = new THREE.TorusGeometry(3.6, 0.12, 28, 160);
-    const ring2Mat = new THREE.MeshBasicMaterial({
-      color: 0x3fd8ff,
-      transparent: true,
-      opacity: 0.7,
-    });
-    const ring2 = new THREE.Mesh(ring2Geo, ring2Mat);
-    ring2.rotation.x = Math.PI / 2;
-    ring2.rotation.z = Math.PI / 5;
-    group.add(ring2);
-
-    const starCount = 700;
+    const starCount = 1100;
     const starPositions = new Float32Array(starCount * 3);
     for (let i = 0; i < starCount; i++) {
-      const r = 10 + rand() * 35;
+      const r = 9 + rand() * 42;
       const t = rand() * Math.PI * 2;
       const p = Math.acos(2 * rand() - 1);
       starPositions[i * 3 + 0] = r * Math.sin(p) * Math.cos(t);
@@ -194,86 +218,14 @@ export const MultiWindowPortal = ({
     starsGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
     const starsMat = new THREE.PointsMaterial({
       color: 0xffffff,
-      size: 0.045,
+      size: 0.032,
       transparent: true,
-      opacity: 0.8,
+      opacity: 0.75,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     });
     const stars = new THREE.Points(starsGeo, starsMat);
     scene.add(stars);
-
-    const selfId =
-      (globalThis.crypto as Crypto | undefined)?.randomUUID?.() ?? Math.random().toString(36).slice(2);
-    const windows = new Map<string, WindowInfo>();
-    windows.set(selfId, {
-      id: selfId,
-      x: window.screenX || 0,
-      y: window.screenY || 0,
-      width: window.innerWidth,
-      height: window.innerHeight,
-      ts: Date.now(),
-    });
-
-    let channel: BroadcastChannel | null = null;
-    let heartbeatId: number | null = null;
-
-    const getWindowInfo = (): WindowInfo => ({
-      id: selfId,
-      x: window.screenX || (window as any).screenLeft || 0,
-      y: window.screenY || (window as any).screenTop || 0,
-      width: window.innerWidth,
-      height: window.innerHeight,
-      ts: Date.now(),
-    });
-
-    const pruneWindows = () => {
-      const now = Date.now();
-      for (const [id, info] of windows) {
-        if (now - info.ts > 2200) windows.delete(id);
-      }
-      setWindowCount((prev) => (prev !== windows.size ? windows.size : prev));
-    };
-
-    const computeBounds = (infos: WindowInfo[]) => {
-      let minX = Infinity;
-      let minY = Infinity;
-      let maxX = -Infinity;
-      let maxY = -Infinity;
-      infos.forEach((info) => {
-        minX = Math.min(minX, info.x);
-        minY = Math.min(minY, info.y);
-        maxX = Math.max(maxX, info.x + info.width);
-        maxY = Math.max(maxY, info.y + info.height);
-      });
-      return {
-        minX,
-        minY,
-        totalWidth: Math.max(1, maxX - minX),
-        totalHeight: Math.max(1, maxY - minY),
-      };
-    };
-
-    if (useMultiWindow && 'BroadcastChannel' in window) {
-      channel = new BroadcastChannel(CHANNEL);
-      channel.onmessage = (event) => {
-        const payload = event.data as { info?: WindowInfo } | undefined;
-        if (!payload?.info) return;
-        windows.set(payload.info.id, payload.info);
-        pruneWindows();
-      };
-
-      heartbeatId = window.setInterval(() => {
-        const info = getWindowInfo();
-        windows.set(selfId, info);
-        channel?.postMessage({ info });
-        pruneWindows();
-      }, 480);
-
-      window.addEventListener('beforeunload', () => {
-        channel?.postMessage({ info: { ...getWindowInfo(), ts: 0 } });
-      });
-    }
 
     let frameId = 0;
 
@@ -284,43 +236,28 @@ export const MultiWindowPortal = ({
       camera.updateProjectionMatrix();
     };
 
-    const updateCameraOffset = () => {
-      const self = getWindowInfo();
-      windows.set(selfId, self);
-      pruneWindows();
-      const infos = Array.from(windows.values()).filter((info) => info.ts > 0);
-      const { minX, minY, totalWidth, totalHeight } = computeBounds(infos.length ? infos : [self]);
-
-      const offsetX = self.x - minX;
-      const offsetY = self.y - minY;
-      camera.setViewOffset(totalWidth, totalHeight, offsetX, offsetY, self.width, self.height);
-    };
-
     const render = () => {
       const t = (Date.now() - startEpoch) / 1000;
+      portalUniforms.uTime.value = t;
 
-      ring.rotation.z = t * 0.8;
-      ring2.rotation.z = -t * 0.65;
-      group.rotation.y = Math.sin(t * 0.25) * 0.25;
-      group.rotation.x = Math.cos(t * 0.22) * 0.18;
+      rim.rotation.z = t * 0.55;
+      rim2.rotation.z = -t * 0.75;
+      const motionScale = reduced ? 0.25 : 1;
+      group.rotation.y = Math.sin(t * 0.22) * 0.18 * motionScale;
+      group.rotation.x = Math.cos(t * 0.18) * 0.12 * motionScale;
 
-      shards.forEach((shard, index) => {
-        const wobble = Math.sin(t * shard.wave + shard.phase + index * 0.02) * 0.9;
-        const bob = Math.cos(t * shard.wave * 1.3 + shard.phase) * 0.7;
-        shard.mesh.position.set(
-          shard.base.x + wobble * shard.drift,
-          shard.base.y + bob * shard.drift,
-          shard.base.z + Math.sin(t * 0.5 + shard.phase) * 0.6,
+      orbs.forEach((orb, index) => {
+        const wobble = Math.sin(t * orb.speed + orb.phase + index * 0.03) * 0.55 * motionScale;
+        const bob = Math.cos(t * orb.speed * 0.9 + orb.phase) * 0.55 * motionScale;
+        orb.mesh.position.set(
+          orb.base.x + wobble,
+          orb.base.y + bob,
+          orb.base.z + Math.sin(t * 0.6 + orb.phase) * 0.6 * motionScale,
         );
-        if (!reduced) shard.mesh.rotateOnAxis(shard.axis, shard.spin * 0.01);
+        if (!reduced) orb.mesh.rotateOnAxis(orb.axis, 0.012);
       });
 
-      stars.rotation.y = t * 0.04;
-
-      if (useMultiWindow) {
-        updateCameraOffset();
-        updateSize();
-      }
+      stars.rotation.y = t * 0.02;
 
       renderer.render(scene, camera);
       frameId = requestAnimationFrame(render);
@@ -339,36 +276,31 @@ export const MultiWindowPortal = ({
 
     return () => {
       cancelAnimationFrame(frameId);
-      if (heartbeatId) window.clearInterval(heartbeatId);
-      channel?.close();
       if (fullscreen) window.removeEventListener('resize', handleResize);
       ro?.disconnect();
-      geometries.forEach((geo) => geo.dispose());
-      ringGeo.dispose();
-      ring2Geo.dispose();
+      portalGeo.dispose();
+      rimGeo.dispose();
+      rim2Geo.dispose();
+      orbGeo.dispose();
       starsGeo.dispose();
-      shards.forEach((shard) => {
-        const material = shard.mesh.material as any;
+      portalMat.dispose();
+      rimMat.dispose();
+      rim2Mat.dispose();
+      starsMat.dispose();
+      orbs.forEach((orb) => {
+        const material = orb.mesh.material as any;
         if (material?.dispose) material.dispose();
       });
-      ringMat.dispose();
-      ring2Mat.dispose();
-      starsMat.dispose();
       renderer.dispose();
     };
-  }, [fullscreen, reduced, seed, startEpoch, useMultiWindow]);
+  }, [fullscreen, reduced, seed, startEpoch]);
 
   return (
     <div className={`relative h-full w-full ${className}`}>
       <canvas ref={canvasRef} className="h-full w-full" aria-hidden />
       {showBadge ? (
         <div className="pointer-events-none absolute left-3 top-3 rounded-full border border-white/10 bg-black/40 px-3 py-1 text-[10px] uppercase tracking-[0.14em] text-white/80 backdrop-blur">
-          {useMultiWindow ? `Окон в портале: ${windowCount}` : 'Неоновый портал'}
-        </div>
-      ) : null}
-      {useMultiWindow ? (
-        <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center text-[10px] uppercase tracking-[0.14em] text-white/70">
-          Перетащи окна рядом — сцена склеится
+          Неоновый портал
         </div>
       ) : null}
     </div>
