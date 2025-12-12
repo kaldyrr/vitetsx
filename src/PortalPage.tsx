@@ -32,13 +32,13 @@ export const PortalPage = () => {
           <span className="h-2 w-2 rounded-full bg-accent shadow-neon" />
           WebGL / Generative
         </div>
-        <h1 className="glow-text text-4xl font-semibold text-white md:text-6xl">Неоновые галактики</h1>
+        <h1 className="glow-text text-4xl font-semibold text-white md:text-6xl">Неоновый поток</h1>
         <p className="max-w-2xl text-sm text-muted md:text-base">
-          Две генеративные галактики на Three.js. Когда открыто несколько окон, они начинают тянуться друг к другу и
-          перетекать через границы экранов.
+          Плотное облако мягких частиц на Three.js. В одном окне они живут вокруг ядра, а при нескольких окнах —
+          притягиваются к каждому ядру и перетекают между экранами.
         </p>
         <p className="max-w-2xl text-xs uppercase tracking-[0.18em] text-white/70 md:text-sm">
-          Открой несколько окон и разложи их рядом — галактики начнут взаимодействовать.
+          Открой несколько окон и сближай их — частицы начнут обмениваться ядрами.
         </p>
         <div className="flex flex-wrap items-center justify-center gap-3">
           <NeonButton href={`${import.meta.env.BASE_URL}`}>Назад в портфолио</NeonButton>
@@ -49,7 +49,7 @@ export const PortalPage = () => {
             variant="ghost"
             onClick={() => window.location.reload()}
             className="px-5 py-3"
-            aria-label="Перезапустить галактики"
+            aria-label="Перезапустить поток частиц"
           >
             Перезапустить сцену
           </NeonButton>

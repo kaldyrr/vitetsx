@@ -100,77 +100,97 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
 
     const group = new THREE.Group();
     scene.add(group);
-    const particleCount = 2600;
-    const maxRadius = 7.8;
-    const positions = new Float32Array(particleCount * 3);
-    const colors = new Float32Array(particleCount * 3);
-    const galaxyOf = new Uint8Array(particleCount);
-    const radiusOf = new Float32Array(particleCount);
-    const angleOf = new Float32Array(particleCount);
-    const speedOf = new Float32Array(particleCount);
-    const heightOf = new Float32Array(particleCount);
-    const armOf = new Float32Array(particleCount);
+    const palette = [
+      new THREE.Color(0xff5efb),
+      new THREE.Color(0x3fd8ff),
+      new THREE.Color(0x7c5bff),
+      new THREE.Color(0xffffff),
+    ];
 
-    const palette = [0xff5efb, 0x3fd8ff, 0x7c5bff, 0xffffff];
-    const arms = 3;
+    const maxCores = 6;
+    const coreGeo = new THREE.SphereGeometry(0.38, 20, 20);
+    const coreMats = Array.from({ length: maxCores }, (_, index) => {
+      const base = palette[index % palette.length].clone();
+      return new THREE.MeshBasicMaterial({
+        color: base,
+        transparent: true,
+        opacity: 0.85,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+    });
+    const coreMeshes = coreMats.map((mat) => new THREE.Mesh(coreGeo, mat));
+    coreMeshes.forEach((mesh) => {
+      mesh.visible = false;
+      group.add(mesh);
+    });
+
+    const particleCount = 5200;
+    const positions = new Float32Array(particleCount * 3);
+    const velocities = new Float32Array(particleCount * 3);
+    const colors = new Float32Array(particleCount * 3);
+    const phaseOf = new Float32Array(particleCount);
+    const homeOf = new Uint8Array(particleCount);
+
+    const initialSpan = 11.5;
 
     for (let i = 0; i < particleCount; i++) {
-      const g = i < particleCount / 2 ? 0 : 1;
-      galaxyOf[i] = g;
-      const r = Math.pow(rand(), 1.9) * maxRadius + 0.25;
-      radiusOf[i] = r;
-      angleOf[i] = rand() * Math.PI * 2;
-      const direction = g === 0 ? 1 : -1;
-      speedOf[i] = direction * (0.12 + rand() * 0.45);
-      heightOf[i] = (rand() - 0.5) * 0.9 * (1 - r / maxRadius);
-      armOf[i] = (Math.floor(rand() * arms) / arms) * Math.PI * 2 + rand() * 0.8;
+      const r = Math.pow(rand(), 0.7) * initialSpan;
+      const theta = rand() * Math.PI * 2;
+      const z = (rand() - 0.5) * 2.6;
+      const idx = i * 3;
+      positions[idx + 0] = Math.cos(theta) * r;
+      positions[idx + 1] = Math.sin(theta) * r;
+      positions[idx + 2] = z;
 
-      const base = new THREE.Color(palette[Math.floor(rand() * palette.length)]);
-      base.offsetHSL(0, 0, -(r / maxRadius) * 0.25);
-      colors[i * 3 + 0] = base.r;
-      colors[i * 3 + 1] = base.g;
-      colors[i * 3 + 2] = base.b;
+      velocities[idx + 0] = (rand() - 0.5) * 0.02;
+      velocities[idx + 1] = (rand() - 0.5) * 0.02;
+      velocities[idx + 2] = (rand() - 0.5) * 0.01;
+
+      const home = rand() < 0.5 ? 0 : 1;
+      homeOf[i] = home;
+      phaseOf[i] = rand() * Math.PI * 2;
+
+      const color = palette[home].clone();
+      const brightness = 0.45 + rand() * 0.55;
+      colors[idx + 0] = color.r * brightness;
+      colors[idx + 1] = color.g * brightness;
+      colors[idx + 2] = color.b * brightness;
     }
 
-    const galaxyGeo = new THREE.BufferGeometry();
-    galaxyGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    galaxyGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    const galaxyMat = new THREE.PointsMaterial({
-      size: 0.06,
+    const spriteCanvas = document.createElement('canvas');
+    spriteCanvas.width = 64;
+    spriteCanvas.height = 64;
+    const spriteCtx = spriteCanvas.getContext('2d');
+    if (spriteCtx) {
+      const gradient = spriteCtx.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gradient.addColorStop(0, 'rgba(255,255,255,1)');
+      gradient.addColorStop(0.35, 'rgba(255,255,255,0.9)');
+      gradient.addColorStop(0.7, 'rgba(255,255,255,0.25)');
+      gradient.addColorStop(1, 'rgba(255,255,255,0)');
+      spriteCtx.fillStyle = gradient;
+      spriteCtx.fillRect(0, 0, 64, 64);
+    }
+    const spriteTex = new THREE.CanvasTexture(spriteCanvas);
+    spriteTex.colorSpace = THREE.SRGBColorSpace;
+
+    const particleGeo = new THREE.BufferGeometry();
+    particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    particleGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    const particleMat = new THREE.PointsMaterial({
+      size: 0.085,
+      map: spriteTex,
       transparent: true,
       opacity: 0.95,
       depthWrite: false,
       vertexColors: true,
       blending: THREE.AdditiveBlending,
     });
-    const galaxies = new THREE.Points(galaxyGeo, galaxyMat);
-    group.add(galaxies);
+    const particles = new THREE.Points(particleGeo, particleMat);
+    group.add(particles);
 
-    const positionAttr = galaxyGeo.getAttribute('position') as any;
-    const galaxyCenters = [new THREE.Vector3(-3.8, -0.6, 0), new THREE.Vector3(3.8, 0.6, 0)];
-    const galaxyTargets = [galaxyCenters[0].clone(), galaxyCenters[1].clone()];
-    const galaxyOffset = [new THREE.Vector3(-1.0, 0.6, 0), new THREE.Vector3(1.0, -0.6, 0)];
-    const defaultTargets = [galaxyCenters[0].clone(), galaxyCenters[1].clone()];
-
-    const coreGeo = new THREE.SphereGeometry(0.55, 24, 24);
-    const coreMats = [
-      new THREE.MeshBasicMaterial({
-        color: 0xff5efb,
-        transparent: true,
-        opacity: 0.9,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      }),
-      new THREE.MeshBasicMaterial({
-        color: 0x3fd8ff,
-        transparent: true,
-        opacity: 0.9,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      }),
-    ];
-    const cores = coreMats.map((mat) => new THREE.Mesh(coreGeo, mat));
-    cores.forEach((core) => group.add(core));
+    const positionAttr = particleGeo.getAttribute('position') as any;
+    const colorAttr = particleGeo.getAttribute('color') as any;
 
     const starCount = 1100;
     const starPositions = new Float32Array(starCount * 3);
@@ -382,11 +402,12 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
       return { infos, bounds: smoothBounds, selfInfo };
     };
 
+    const corePositions = Array.from({ length: maxCores }, () => new THREE.Vector3());
     let mergeValue = 0;
 
     const render = () => {
       const t = (Date.now() - startEpoch) / 1000;
-      const motionScale = reduced ? 0.35 : 1;
+      const motionScale = reduced ? 0.5 : 1;
 
       let infos: WindowInfo[] = [];
       let bounds = { minX: 0, minY: 0, totalWidth: initialWidth, totalHeight: initialHeight };
@@ -397,90 +418,156 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
         bounds = view.bounds;
       }
 
-      if (infos.length >= 2) {
-        const sorted = [...infos].sort((a, b) => a.id.localeCompare(b.id));
-        const a = sorted[0];
-        const b = sorted[1];
-        galaxyTargets[0].copy(toWorld(a, bounds)).add(galaxyOffset[0]);
-        galaxyTargets[1].copy(toWorld(b, bounds)).add(galaxyOffset[1]);
+      const sortedInfos = infos.length ? [...infos].sort((a, b) => a.id.localeCompare(b.id)) : [];
+      const activeInfos = useMultiWindow ? sortedInfos.slice(0, maxCores) : [];
+      const coreCount = activeInfos.length || 1;
 
-        const ax = a.x + a.width / 2;
-        const ay = a.y + a.height / 2;
-        const bx = b.x + b.width / 2;
-        const by = b.y + b.height / 2;
-        const pixelDist = Math.hypot(ax - bx, ay - by);
-        const avgSize = (a.width + a.height + b.width + b.height) / 4;
-        const mergeTarget = THREE.MathUtils.clamp(1 - pixelDist / (avgSize * 1.6), 0, 1);
-        mergeValue += (mergeTarget - mergeValue) * 0.08;
+      if (coreCount === 1) {
+        corePositions[0].set(0, 0, 0);
       } else {
-        galaxyTargets[0].copy(defaultTargets[0]);
-        galaxyTargets[1].copy(defaultTargets[1]);
-        mergeValue += (0 - mergeValue) * 0.08;
+        for (let i = 0; i < coreCount; i++) {
+          corePositions[i].copy(toWorld(activeInfos[i], bounds));
+        }
       }
 
-      galaxyCenters[0].lerp(galaxyTargets[0], 0.06);
-      galaxyCenters[1].lerp(galaxyTargets[1], 0.06);
+      if (coreCount >= 2) {
+        let minDist2 = Infinity;
+        for (let i = 0; i < coreCount; i++) {
+          for (let j = i + 1; j < coreCount; j++) {
+            const dx = corePositions[i].x - corePositions[j].x;
+            const dy = corePositions[i].y - corePositions[j].y;
+            const dz = corePositions[i].z - corePositions[j].z;
+            const d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 < minDist2) minDist2 = d2;
+          }
+        }
+        const minDist = Math.sqrt(minDist2);
+        const mergeTarget = THREE.MathUtils.clamp(1 - minDist / 8, 0, 1);
+        mergeValue += (mergeTarget - mergeValue) * 0.06;
+      } else {
+        mergeValue += (0 - mergeValue) * 0.06;
+      }
 
-      const coreScale = 0.9 + mergeValue * 0.9;
-      cores.forEach((core, idx) => {
-        core.position.copy(galaxyCenters[idx]);
-        core.scale.setScalar(coreScale);
-        (coreMats[idx] as any).opacity = 0.65 + mergeValue * 0.35;
-      });
+      const coreScale = 0.8 + mergeValue * 0.9;
+      for (let i = 0; i < maxCores; i++) {
+        const mesh = coreMeshes[i];
+        if (i < coreCount) {
+          mesh.visible = true;
+          mesh.position.copy(corePositions[i]);
+          mesh.scale.setScalar(coreScale);
+          (coreMats[i] as any).opacity = 0.7 + mergeValue * 0.25;
+        } else {
+          mesh.visible = false;
+        }
+      }
+
+      const baseAttract = 0.008 * motionScale;
+      const orbitStrength = 0.004 * motionScale;
+      const bridgeStrength = 0.006 * mergeValue * motionScale;
+      const damping = 0.985;
+      const maxSpeed = 0.18 * motionScale;
+      const boundary = initialSpan * 1.6;
 
       for (let i = 0; i < particleCount; i++) {
-        const g = galaxyOf[i];
-        const center = galaxyCenters[g];
-        const other = galaxyCenters[1 - g];
-        const baseRadius = radiusOf[i];
-        const coreAttract = (0.12 + mergeValue * 0.55) * (1 - baseRadius / maxRadius);
-        const r = Math.max(
-          0.05,
-          baseRadius * (1 - coreAttract * 0.55) +
-            Math.sin(t * 0.9 + i * 0.02) * coreAttract * 0.4,
-        );
-        const angle =
-          angleOf[i] +
-          t * speedOf[i] * (1 + coreAttract * 1.4) * motionScale +
-          r * 0.38;
-        const arm = armOf[i];
-
-        let localX = Math.cos(angle + arm) * r;
-        let localY = Math.sin(angle + arm) * r * 0.6;
-        let localZ =
-          heightOf[i] * (1 - coreAttract * 0.7) +
-          Math.sin(t * 0.7 + angle) * 0.18 * motionScale;
-
-        const dx = other.x - center.x;
-        const dy = other.y - center.y;
-        const dz = other.z - center.z;
-        const invDist = 1 / (Math.hypot(dx, dy, dz) || 1);
-        const dirX = dx * invDist;
-        const dirY = dy * invDist;
-        const dirZ = dz * invDist;
-
-        const pull = mergeValue * (1 - baseRadius / maxRadius) * 0.7;
-        const tail = mergeValue * Math.pow(baseRadius / maxRadius, 1.6) * 2.6;
-        const tailOsc = 0.6 + 0.4 * Math.sin(t * 0.8 + arm + baseRadius * 0.4);
-
-        localX += dirX * tail * tailOsc;
-        localY += dirY * tail * tailOsc * 0.8;
-        localZ += dirZ * tail * 0.2;
-
-        const x = center.x + localX + dx * pull;
-        const y = center.y + localY + dy * pull;
-        const z = center.z + localZ;
-
         const idx = i * 3;
-        positions[idx + 0] = x;
-        positions[idx + 1] = y;
-        positions[idx + 2] = z;
+        let px = positions[idx + 0];
+        let py = positions[idx + 1];
+        let pz = positions[idx + 2];
+        let vx = velocities[idx + 0];
+        let vy = velocities[idx + 1];
+        let vz = velocities[idx + 2];
+
+        let nearest = 0;
+        let second = 0;
+        let minD2 = Infinity;
+        let secondD2 = Infinity;
+
+        for (let c = 0; c < coreCount; c++) {
+          const dx = corePositions[c].x - px;
+          const dy = corePositions[c].y - py;
+          const dz = corePositions[c].z - pz;
+          const d2 = dx * dx + dy * dy + dz * dz;
+          if (d2 < minD2) {
+            secondD2 = minD2;
+            second = nearest;
+            minD2 = d2;
+            nearest = c;
+          } else if (d2 < secondD2) {
+            secondD2 = d2;
+            second = c;
+          }
+        }
+
+        const core = corePositions[nearest];
+        const dx = core.x - px;
+        const dy = core.y - py;
+        const dz = core.z - pz;
+        const dist = Math.sqrt(minD2) + 0.001;
+        const attract = baseAttract / (0.6 + minD2);
+
+        const orbitDir = homeOf[i] % 2 === 0 ? 1 : -1;
+        const orbitX = (-dy / dist) * orbitStrength * orbitDir;
+        const orbitY = (dx / dist) * orbitStrength * orbitDir;
+
+        const noise = Math.sin(t * 0.6 + phaseOf[i]) * 0.0025;
+        vx = vx * damping + dx * attract + orbitX + noise;
+        vy = vy * damping + dy * attract + orbitY + noise;
+        vz = vz * damping + dz * attract * 0.6 + Math.cos(t * 0.5 + phaseOf[i]) * 0.0015;
+
+        if (coreCount >= 2) {
+          const other = corePositions[second];
+          const odx = other.x - px;
+          const ody = other.y - py;
+          const odz = other.z - pz;
+          const bridge = bridgeStrength / (1.2 + secondD2);
+          vx += odx * bridge;
+          vy += ody * bridge;
+          vz += odz * bridge * 0.6;
+        }
+
+        const speed2 = vx * vx + vy * vy + vz * vz;
+        if (speed2 > maxSpeed * maxSpeed) {
+          const s = maxSpeed / Math.sqrt(speed2);
+          vx *= s;
+          vy *= s;
+          vz *= s;
+        }
+
+        px += vx;
+        py += vy;
+        pz += vz;
+
+        const r2 = px * px + py * py + pz * pz;
+        if (r2 > boundary * boundary) {
+          const r = Math.sqrt(r2);
+          const pullBack = (r - boundary) * 0.002;
+          px -= (px / r) * pullBack;
+          py -= (py / r) * pullBack;
+          pz -= (pz / r) * pullBack;
+          vx *= 0.92;
+          vy *= 0.92;
+          vz *= 0.92;
+        }
+
+        positions[idx + 0] = px;
+        positions[idx + 1] = py;
+        positions[idx + 2] = pz;
+        velocities[idx + 0] = vx;
+        velocities[idx + 1] = vy;
+        velocities[idx + 2] = vz;
+
+        const baseColor = palette[nearest % palette.length];
+        const brightness = 0.3 + 0.7 * Math.exp(-dist * 0.25);
+        colors[idx + 0] = baseColor.r * brightness;
+        colors[idx + 1] = baseColor.g * brightness;
+        colors[idx + 2] = baseColor.b * brightness;
       }
 
       positionAttr.needsUpdate = true;
+      colorAttr.needsUpdate = true;
 
-      galaxies.rotation.z = t * 0.03;
-      stars.rotation.y = t * 0.015;
+      particles.rotation.z = t * 0.012;
+      stars.rotation.y = t * 0.01;
 
       renderer.render(scene, camera);
       frameId = requestAnimationFrame(render);
@@ -505,9 +592,10 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
       channel?.close();
       if (fullscreen) window.removeEventListener('resize', handleResize);
       ro?.disconnect();
-      galaxyGeo.dispose();
+      particleGeo.dispose();
       starsGeo.dispose();
-      galaxyMat.dispose();
+      particleMat.dispose();
+      spriteTex.dispose();
       starsMat.dispose();
       coreGeo.dispose();
       coreMats.forEach((mat) => mat.dispose());
@@ -520,7 +608,7 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
       <canvas ref={canvasRef} className="h-full w-full" aria-hidden />
       {showBadge ? (
         <div className="pointer-events-none absolute left-3 top-3 rounded-full border border-white/10 bg-black/40 px-3 py-1 text-[10px] uppercase tracking-[0.14em] text-white/80 backdrop-blur">
-          {useMultiWindow && windowCount > 1 ? `Окон в галактиках: ${windowCount}` : 'Неоновые галактики'}
+          {useMultiWindow && windowCount > 1 ? `Окон в потоке: ${windowCount}` : 'Неоновый поток'}
         </div>
       ) : null}
     </div>
