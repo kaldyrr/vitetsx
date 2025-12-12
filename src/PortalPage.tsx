@@ -31,13 +31,13 @@ export const PortalPage = () => {
           <span className="h-2 w-2 rounded-full bg-accent shadow-neon" />
           WebGL / Generative
         </div>
-        <h1 className="glow-text text-4xl font-semibold text-white md:text-6xl">Неоновый портал</h1>
+        <h1 className="glow-text text-4xl font-semibold text-white md:text-6xl">Неоновые галактики</h1>
         <p className="max-w-2xl text-sm text-muted md:text-base">
-          Мини‑сцена на Three.js: мягкий неон, глубина и пыль частиц. Такой эффект можно аккуратно
-          встраивать в интерфейсы и лендинги, чтобы добавить “вау” без перегруза.
+          Две генеративные галактики на Three.js. Когда открыто несколько окон, они начинают тянуться друг к другу и
+          перетекать через границы экранов.
         </p>
         <p className="max-w-2xl text-xs uppercase tracking-[0.18em] text-white/70 md:text-sm">
-          Открой несколько окон и разложи их рядом — увидишь цельную сцену между ними.
+          Открой несколько окон и разложи их рядом — галактики начнут взаимодействовать.
         </p>
         <div className="flex flex-wrap items-center justify-center gap-3">
           <NeonButton href={`${import.meta.env.BASE_URL}`}>Назад в портфолио</NeonButton>
@@ -48,9 +48,9 @@ export const PortalPage = () => {
             variant="ghost"
             onClick={() => window.location.reload()}
             className="px-5 py-3"
-            aria-label="Перезапустить портал"
+            aria-label="Перезапустить галактики"
           >
-            Перезапустить
+            Перезапустить сцену
           </NeonButton>
         </div>
       </div>

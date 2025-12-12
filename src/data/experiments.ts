@@ -3,10 +3,10 @@ import type { Experiment } from '../types';
 export const experiments: Experiment[] = [
   {
     id: 'portal',
-    title: 'Неоновый портал',
+    title: 'Неоновые галактики',
     description:
-      'Глубокая WebGL‑сцена с мягким неоном и вихрем частиц. Есть отдельная страница с порталом во весь экран.',
-    label: 'webgl / portal',
+      'Две галактики, которые тянутся друг к другу и «склеиваются» между окнами. Открой отдельную страницу и попробуй.',
+    label: 'webgl / galaxies',
     intensity: 'bold',
   },
   {

@@ -20,7 +20,7 @@ export const ExperimentsSection = () => {
       <SectionTitle
         label="Песочница"
         title="Эксперименты"
-        description="Небольшие визуальные исследования: Canvas‑узлы, CSS‑сетка и WebGL‑портал с мягким неоном."
+        description="Небольшие визуальные исследования: Canvas‑узлы, CSS‑сетка и WebGL‑галактики, которые живут сразу в нескольких окнах."
       />
       <div className="grid gap-6 md:grid-cols-3">
         {experiments.map((exp, index) => (
@@ -55,9 +55,9 @@ export const ExperimentsSection = () => {
                       variant="ghost"
                       onClick={openPortalPage}
                       className="px-4 py-2 text-[11px]"
-                      aria-label="Открыть портал на отдельной странице"
+                      aria-label="Открыть галактики на отдельной странице"
                     >
-                      Открыть портал
+                      Открыть галактики
                     </NeonButton>
                   </div>
                 </div>

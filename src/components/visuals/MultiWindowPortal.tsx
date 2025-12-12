@@ -100,124 +100,55 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
 
     const group = new THREE.Group();
     scene.add(group);
+    const particleCount = 2600;
+    const maxRadius = 7.8;
+    const positions = new Float32Array(particleCount * 3);
+    const colors = new Float32Array(particleCount * 3);
+    const galaxyOf = new Uint8Array(particleCount);
+    const radiusOf = new Float32Array(particleCount);
+    const angleOf = new Float32Array(particleCount);
+    const speedOf = new Float32Array(particleCount);
+    const heightOf = new Float32Array(particleCount);
+    const armOf = new Float32Array(particleCount);
 
-    const portalUniforms = {
-      uTime: { value: 0 },
-      uColor1: { value: new THREE.Color(0xff5efb) },
-      uColor2: { value: new THREE.Color(0x3fd8ff) },
-      uColor3: { value: new THREE.Color(0x7c5bff) },
-    };
+    const palette = [0xff5efb, 0x3fd8ff, 0x7c5bff, 0xffffff];
+    const arms = 3;
 
-    const portalMat = new THREE.ShaderMaterial({
-      uniforms: portalUniforms,
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      vertexShader: `
-        varying vec2 vUv;
-        void main() {
-          vUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform float uTime;
-        uniform vec3 uColor1;
-        uniform vec3 uColor2;
-        uniform vec3 uColor3;
-        varying vec2 vUv;
+    for (let i = 0; i < particleCount; i++) {
+      const g = i < particleCount / 2 ? 0 : 1;
+      galaxyOf[i] = g;
+      const r = Math.pow(rand(), 1.9) * maxRadius + 0.25;
+      radiusOf[i] = r;
+      angleOf[i] = rand() * Math.PI * 2;
+      const direction = g === 0 ? 1 : -1;
+      speedOf[i] = direction * (0.12 + rand() * 0.45);
+      heightOf[i] = (rand() - 0.5) * 0.9 * (1 - r / maxRadius);
+      armOf[i] = (Math.floor(rand() * arms) / arms) * Math.PI * 2 + rand() * 0.8;
 
-        float hash(vec2 p){
-          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
-        }
+      const base = new THREE.Color(palette[Math.floor(rand() * palette.length)]);
+      base.offsetHSL(0, 0, -(r / maxRadius) * 0.25);
+      colors[i * 3 + 0] = base.r;
+      colors[i * 3 + 1] = base.g;
+      colors[i * 3 + 2] = base.b;
+    }
 
-        void main() {
-          vec2 uv = vUv * 2.0 - 1.0;
-          float r = length(uv);
-          float a = atan(uv.y, uv.x);
-
-          float swirl = sin(a * 6.0 + uTime * 1.4) * 0.08;
-          float waves = sin((r * 12.0 - uTime * 2.2) + a * 3.0) * 0.06;
-          float core = smoothstep(0.9, 0.0, r + swirl + waves);
-
-          float grain = (hash(uv * 18.0 + uTime) - 0.5) * 0.08;
-          float edge = smoothstep(0.55, 0.1, r);
-          float alpha = core * edge + grain;
-
-          float hueMix = 0.5 + 0.5 * sin(a * 2.0 + uTime * 0.7);
-          vec3 color = mix(uColor1, uColor2, hueMix);
-          color = mix(color, uColor3, smoothstep(0.25, 0.9, r));
-
-          gl_FragColor = vec4(color, clamp(alpha, 0.0, 1.0));
-        }
-      `,
-    });
-
-    const portalGeo = new THREE.CircleGeometry(3.9, 160);
-    const portalMesh = new THREE.Mesh(portalGeo, portalMat);
-    group.add(portalMesh);
-
-    const rimGeo = new THREE.TorusGeometry(4.2, 0.09, 32, 240);
-    const rimMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      emissive: 0xff5efb,
-      emissiveIntensity: 2.0,
-      roughness: 0.25,
-      metalness: 0.8,
+    const galaxyGeo = new THREE.BufferGeometry();
+    galaxyGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    galaxyGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    const galaxyMat = new THREE.PointsMaterial({
+      size: 0.06,
       transparent: true,
       opacity: 0.95,
+      depthWrite: false,
+      vertexColors: true,
+      blending: THREE.AdditiveBlending,
     });
-    const rim = new THREE.Mesh(rimGeo, rimMat);
-    rim.rotation.x = Math.PI / 2;
-    group.add(rim);
+    const galaxies = new THREE.Points(galaxyGeo, galaxyMat);
+    group.add(galaxies);
 
-    const rim2Geo = new THREE.TorusGeometry(3.6, 0.06, 32, 240);
-    const rim2Mat = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      emissive: 0x3fd8ff,
-      emissiveIntensity: 1.7,
-      roughness: 0.28,
-      metalness: 0.75,
-      transparent: true,
-      opacity: 0.85,
-    });
-    const rim2 = new THREE.Mesh(rim2Geo, rim2Mat);
-    rim2.rotation.x = Math.PI / 2;
-    rim2.rotation.z = Math.PI / 6;
-    group.add(rim2);
-
-    const orbGeo = new THREE.SphereGeometry(0.18, 20, 20);
-    const palette = [0xff5efb, 0x3fd8ff, 0x7c5bff, 0xffffff];
-    const orbs: { mesh: any; base: any; axis: any; speed: number; phase: number }[] = [];
-
-    for (let i = 0; i < 70; i++) {
-      const color = palette[Math.floor(rand() * palette.length)];
-      const mat = new THREE.MeshStandardMaterial({
-        color,
-        emissive: color,
-        emissiveIntensity: 1.35,
-        roughness: 0.35,
-        metalness: 0.25,
-        transparent: true,
-        opacity: 0.95,
-      });
-      const mesh = new THREE.Mesh(orbGeo, mat);
-      const radius = 2.6 + rand() * 7.8;
-      const theta = rand() * Math.PI * 2;
-      const z = (rand() - 0.5) * 5.2;
-      const base = new THREE.Vector3(Math.cos(theta) * radius, Math.sin(theta) * radius, z);
-      mesh.position.copy(base);
-      const scale = 0.6 + rand() * 1.8;
-      mesh.scale.setScalar(scale);
-      orbs.push({
-        mesh,
-        base,
-        axis: new THREE.Vector3(rand() - 0.5, rand() - 0.5, rand() - 0.5).normalize(),
-        speed: 0.35 + rand() * 1.25,
-        phase: rand() * Math.PI * 2,
-      });
-      group.add(mesh);
-    }
+    const positionAttr = galaxyGeo.getAttribute('position') as any;
+    const galaxyCenters = [new THREE.Vector3(-3.5, 0, 0), new THREE.Vector3(3.5, 0, 0)];
+    const galaxyTargets = [galaxyCenters[0].clone(), galaxyCenters[1].clone()];
 
     const starCount = 1100;
     const starPositions = new Float32Array(starCount * 3);
@@ -359,10 +290,29 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
     };
 
     let frameId = 0;
+    let lastRenderSize = { width: initialWidth, height: initialHeight };
+    let smoothBounds: { minX: number; minY: number; totalWidth: number; totalHeight: number } | null = null;
+    const smoothOffset = { x: 0, y: 0 };
+    const boundsFalloff = 0.12;
+    const offsetFalloff = 0.18;
+
+    const toWorld = (
+      info: WindowInfo,
+      bounds: { minX: number; minY: number; totalWidth: number; totalHeight: number },
+    ) => {
+      const cx = info.x + info.width / 2;
+      const cy = info.y + info.height / 2;
+      const nx = (cx - bounds.minX) / bounds.totalWidth - 0.5;
+      const ny = 0.5 - (cy - bounds.minY) / bounds.totalHeight;
+      const aspect = bounds.totalWidth / bounds.totalHeight;
+      const span = 10;
+      return new THREE.Vector3(nx * span * aspect, ny * span, 0);
+    };
 
     const updateSize = () => {
       const next = getSize();
       renderer.setSize(next.width, next.height, false);
+      lastRenderSize = { width: next.width, height: next.height };
       if (!useMultiWindow) {
         camera.aspect = next.width / next.height;
         camera.updateProjectionMatrix();
@@ -370,51 +320,112 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
     };
 
     const updateViewOffset = () => {
-      const selfInfo = windows.get(selfId) ?? getWindowInfo();
+      const selfInfo = getWindowInfo();
+      windows.set(selfId, selfInfo);
       const infos = pruneWindows(Array.from(windows.values()).filter((info) => info.ts > 0));
-      const bounds = computeBounds(infos.length ? infos : [selfInfo]);
-      const offsetX = selfInfo.x - bounds.minX;
-      const offsetY = selfInfo.y - bounds.minY;
+      const rawBounds = computeBounds(infos.length ? infos : [selfInfo]);
 
-      camera.aspect = bounds.totalWidth / bounds.totalHeight;
+      if (!smoothBounds) {
+        smoothBounds = { ...rawBounds };
+        smoothOffset.x = selfInfo.x - rawBounds.minX;
+        smoothOffset.y = selfInfo.y - rawBounds.minY;
+      } else {
+        smoothBounds.minX += (rawBounds.minX - smoothBounds.minX) * boundsFalloff;
+        smoothBounds.minY += (rawBounds.minY - smoothBounds.minY) * boundsFalloff;
+        smoothBounds.totalWidth += (rawBounds.totalWidth - smoothBounds.totalWidth) * boundsFalloff;
+        smoothBounds.totalHeight += (rawBounds.totalHeight - smoothBounds.totalHeight) * boundsFalloff;
+
+        const offsetXTarget = selfInfo.x - smoothBounds.minX;
+        const offsetYTarget = selfInfo.y - smoothBounds.minY;
+        smoothOffset.x += (offsetXTarget - smoothOffset.x) * offsetFalloff;
+        smoothOffset.y += (offsetYTarget - smoothOffset.y) * offsetFalloff;
+      }
+
+      camera.aspect = smoothBounds.totalWidth / smoothBounds.totalHeight;
       camera.setViewOffset(
-        bounds.totalWidth,
-        bounds.totalHeight,
-        offsetX,
-        offsetY,
+        smoothBounds.totalWidth,
+        smoothBounds.totalHeight,
+        smoothOffset.x,
+        smoothOffset.y,
         selfInfo.width,
         selfInfo.height,
       );
       camera.updateProjectionMatrix();
-      renderer.setSize(selfInfo.width, selfInfo.height, false);
+
+      if (selfInfo.width !== lastRenderSize.width || selfInfo.height !== lastRenderSize.height) {
+        renderer.setSize(selfInfo.width, selfInfo.height, false);
+        lastRenderSize = { width: selfInfo.width, height: selfInfo.height };
+      }
+
+      return { infos, bounds: smoothBounds, selfInfo };
     };
+
+    let mergeValue = 0;
 
     const render = () => {
       const t = (Date.now() - startEpoch) / 1000;
-      portalUniforms.uTime.value = t;
+      const motionScale = reduced ? 0.35 : 1;
 
-      rim.rotation.z = t * 0.55;
-      rim2.rotation.z = -t * 0.75;
-      const motionScale = reduced ? 0.25 : 1;
-      group.rotation.y = Math.sin(t * 0.22) * 0.18 * motionScale;
-      group.rotation.x = Math.cos(t * 0.18) * 0.12 * motionScale;
-
-      orbs.forEach((orb, index) => {
-        const wobble = Math.sin(t * orb.speed + orb.phase + index * 0.03) * 0.55 * motionScale;
-        const bob = Math.cos(t * orb.speed * 0.9 + orb.phase) * 0.55 * motionScale;
-        orb.mesh.position.set(
-          orb.base.x + wobble,
-          orb.base.y + bob,
-          orb.base.z + Math.sin(t * 0.6 + orb.phase) * 0.6 * motionScale,
-        );
-        if (!reduced) orb.mesh.rotateOnAxis(orb.axis, 0.012);
-      });
-
-      stars.rotation.y = t * 0.02;
+      let infos: WindowInfo[] = [];
+      let bounds = { minX: 0, minY: 0, totalWidth: initialWidth, totalHeight: initialHeight };
 
       if (useMultiWindow) {
-        updateViewOffset();
+        const view = updateViewOffset();
+        infos = view.infos;
+        bounds = view.bounds;
       }
+
+      if (infos.length >= 2) {
+        const sorted = [...infos].sort((a, b) => a.id.localeCompare(b.id));
+        const a = sorted[0];
+        const b = sorted[1];
+        galaxyTargets[0].copy(toWorld(a, bounds));
+        galaxyTargets[1].copy(toWorld(b, bounds));
+
+        const ax = a.x + a.width / 2;
+        const ay = a.y + a.height / 2;
+        const bx = b.x + b.width / 2;
+        const by = b.y + b.height / 2;
+        const pixelDist = Math.hypot(ax - bx, ay - by);
+        const avgSize = (a.width + a.height + b.width + b.height) / 4;
+        const mergeTarget = THREE.MathUtils.clamp(1 - pixelDist / (avgSize * 1.6), 0, 1);
+        mergeValue += (mergeTarget - mergeValue) * 0.08;
+      } else {
+        galaxyTargets[0].set(-3.5, 0, 0);
+        galaxyTargets[1].set(3.5, 0, 0);
+        mergeValue += (0 - mergeValue) * 0.08;
+      }
+
+      galaxyCenters[0].lerp(galaxyTargets[0], 0.06);
+      galaxyCenters[1].lerp(galaxyTargets[1], 0.06);
+
+      for (let i = 0; i < particleCount; i++) {
+        const g = galaxyOf[i];
+        const center = galaxyCenters[g];
+        const other = galaxyCenters[1 - g];
+        const r = radiusOf[i];
+        const angle = angleOf[i] + t * speedOf[i] * motionScale + r * 0.35;
+        const arm = armOf[i];
+
+        const localX = Math.cos(angle + arm) * r;
+        const localY = Math.sin(angle + arm) * r * 0.6;
+        const localZ = heightOf[i] + Math.sin(t * 0.7 + angle) * 0.15 * motionScale;
+
+        const pull = mergeValue * (1 - r / maxRadius) * 0.85;
+        const x = center.x + localX + (other.x - center.x) * pull;
+        const y = center.y + localY + (other.y - center.y) * pull;
+        const z = center.z + localZ;
+
+        const idx = i * 3;
+        positions[idx + 0] = x;
+        positions[idx + 1] = y;
+        positions[idx + 2] = z;
+      }
+
+      positionAttr.needsUpdate = true;
+
+      galaxies.rotation.z = t * 0.03;
+      stars.rotation.y = t * 0.015;
 
       renderer.render(scene, camera);
       frameId = requestAnimationFrame(render);
@@ -439,19 +450,10 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
       channel?.close();
       if (fullscreen) window.removeEventListener('resize', handleResize);
       ro?.disconnect();
-      portalGeo.dispose();
-      rimGeo.dispose();
-      rim2Geo.dispose();
-      orbGeo.dispose();
+      galaxyGeo.dispose();
       starsGeo.dispose();
-      portalMat.dispose();
-      rimMat.dispose();
-      rim2Mat.dispose();
+      galaxyMat.dispose();
       starsMat.dispose();
-      orbs.forEach((orb) => {
-        const material = orb.mesh.material as any;
-        if (material?.dispose) material.dispose();
-      });
       renderer.dispose();
     };
   }, [fullscreen, reduced, seed, startEpoch, useMultiWindow]);
@@ -461,7 +463,7 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
       <canvas ref={canvasRef} className="h-full w-full" aria-hidden />
       {showBadge ? (
         <div className="pointer-events-none absolute left-3 top-3 rounded-full border border-white/10 bg-black/40 px-3 py-1 text-[10px] uppercase tracking-[0.14em] text-white/80 backdrop-blur">
-          {useMultiWindow && windowCount > 1 ? `Окон в портале: ${windowCount}` : 'Неоновый портал'}
+          {useMultiWindow && windowCount > 1 ? `Окон в галактиках: ${windowCount}` : 'Неоновые галактики'}
         </div>
       ) : null}
     </div>
