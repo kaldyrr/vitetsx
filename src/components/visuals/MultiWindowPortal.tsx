@@ -14,7 +14,7 @@ const WINDOWS_KEY = 'neon-portal:windows';
 const WINDOW_KEY_PREFIX = 'neon-portal:window:';
 const CHANNEL = 'neon-portal-windows';
 const STALE_MS = 15_000;
-const HEARTBEAT_MS = 420;
+const HEARTBEAT_MS = 200;
 
 type WindowInfo = {
   id: string;
@@ -159,6 +159,12 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
       colors[idx + 2] = color.b * brightness;
     }
 
+    const initialPositions = positions.slice();
+    const initialVelocities = velocities.slice();
+    const initialColors = colors.slice();
+    const initialPhaseOf = phaseOf.slice();
+    const initialHomeOf = homeOf.slice();
+
     const spriteCanvas = document.createElement('canvas');
     spriteCanvas.width = 64;
     spriteCanvas.height = 64;
@@ -220,6 +226,9 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
     const selfId =
       (globalThis.crypto as Crypto | undefined)?.randomUUID?.() ?? Math.random().toString(36).slice(2);
     const windows = new Map<string, WindowInfo>();
+    let pendingEpoch: number | null = null;
+    let lastKnownWindowCount = 0;
+    let lastRestartAt = 0;
 
     const getWindowInfo = (): WindowInfo => ({
       id: selfId,
@@ -299,7 +308,25 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
       const merged = pruneWindows(Array.from(windows.values()));
       windows.clear();
       merged.forEach((info) => windows.set(info.id, info));
-      setWindowCount((prev) => (prev !== windows.size ? windows.size : prev));
+      const nextCount = windows.size;
+      setWindowCount((prev) => (prev !== nextCount ? nextCount : prev));
+
+      if (useMultiWindow && nextCount > lastKnownWindowCount && nextCount > 1) {
+        const now = Date.now();
+        const leaderId = [...windows.keys()].sort((a, b) => a.localeCompare(b))[0];
+        if (leaderId === selfId && now - lastRestartAt > 1500) {
+          lastRestartAt = now;
+          pendingEpoch = now;
+          try {
+            localStorage.setItem(START_KEY, String(now));
+          } catch {
+            // ignore
+          }
+          channel?.postMessage({ restart: now });
+        }
+      }
+
+      lastKnownWindowCount = nextCount;
 
       try {
         const now = Date.now();
@@ -332,6 +359,12 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
     let beforeUnloadHandler: (() => void) | null = null;
     const storageListener = (event: StorageEvent) => {
       if (!event.key) return;
+
+      if (event.key === START_KEY && event.newValue) {
+        const next = Number(event.newValue);
+        if (Number.isFinite(next) && next > 0) pendingEpoch = next;
+        return;
+      }
 
       if (event.key === WINDOWS_KEY && event.newValue) {
         try {
@@ -375,7 +408,15 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
       if ('BroadcastChannel' in window) {
         channel = new BroadcastChannel(CHANNEL);
         channel.onmessage = (event) => {
-          const payload = event.data as { info?: WindowInfo } | undefined;
+          const payload = event.data as { info?: WindowInfo; restart?: number } | undefined;
+          if (payload && typeof payload.restart === 'number' && Number.isFinite(payload.restart) && payload.restart > 0) {
+            pendingEpoch = payload.restart;
+            try {
+              localStorage.setItem(START_KEY, String(payload.restart));
+            } catch {
+              // ignore
+            }
+          }
           if (!payload?.info) return;
           const [next] = pruneWindows([payload.info]);
           if (!next || next.ts <= 0) {
@@ -427,10 +468,6 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
 
     let frameId = 0;
     let lastRenderSize = { width: initialWidth, height: initialHeight };
-    let smoothBounds: { minX: number; minY: number; totalWidth: number; totalHeight: number } | null = null;
-    const smoothOffset = { x: 0, y: 0 };
-    const boundsFalloff = 0.12;
-    const offsetFalloff = 0.18;
 
     const toWorld = (
       info: WindowInfo,
@@ -459,30 +496,16 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
       const selfInfo = getWindowInfo();
       windows.set(selfId, selfInfo);
       const infos = pruneWindows(Array.from(windows.values()).filter((info) => info.ts > 0));
-      const rawBounds = computeBounds(infos.length ? infos : [selfInfo]);
+      const bounds = computeBounds(infos.length ? infos : [selfInfo]);
+      const offsetX = selfInfo.x - bounds.minX;
+      const offsetY = selfInfo.y - bounds.minY;
 
-      if (!smoothBounds) {
-        smoothBounds = { ...rawBounds };
-        smoothOffset.x = selfInfo.x - rawBounds.minX;
-        smoothOffset.y = selfInfo.y - rawBounds.minY;
-      } else {
-        smoothBounds.minX += (rawBounds.minX - smoothBounds.minX) * boundsFalloff;
-        smoothBounds.minY += (rawBounds.minY - smoothBounds.minY) * boundsFalloff;
-        smoothBounds.totalWidth += (rawBounds.totalWidth - smoothBounds.totalWidth) * boundsFalloff;
-        smoothBounds.totalHeight += (rawBounds.totalHeight - smoothBounds.totalHeight) * boundsFalloff;
-
-        const offsetXTarget = selfInfo.x - smoothBounds.minX;
-        const offsetYTarget = selfInfo.y - smoothBounds.minY;
-        smoothOffset.x += (offsetXTarget - smoothOffset.x) * offsetFalloff;
-        smoothOffset.y += (offsetYTarget - smoothOffset.y) * offsetFalloff;
-      }
-
-      camera.aspect = smoothBounds.totalWidth / smoothBounds.totalHeight;
+      camera.aspect = bounds.totalWidth / bounds.totalHeight;
       camera.setViewOffset(
-        smoothBounds.totalWidth,
-        smoothBounds.totalHeight,
-        smoothOffset.x,
-        smoothOffset.y,
+        bounds.totalWidth,
+        bounds.totalHeight,
+        offsetX,
+        offsetY,
         selfInfo.width,
         selfInfo.height,
       );
@@ -493,7 +516,7 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
         lastRenderSize = { width: selfInfo.width, height: selfInfo.height };
       }
 
-      return { infos, bounds: smoothBounds, selfInfo };
+      return { infos, bounds, selfInfo };
     };
 
     const corePositions = Array.from({ length: maxCores }, () => new THREE.Vector3());
@@ -501,9 +524,30 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
     const pairAxis = new THREE.Vector3();
     const pairPerp = new THREE.Vector3();
     let mergeValue = 0;
+    let epoch = startEpoch;
+    let simStep = 0;
+    const SIM_STEP_S = 1 / 60;
+    const MAX_CATCH_UP_STEPS = 900;
+
+    const resetSimulation = (nextEpoch: number) => {
+      epoch = nextEpoch;
+      simStep = 0;
+      mergeValue = 0;
+      positions.set(initialPositions);
+      velocities.set(initialVelocities);
+      colors.set(initialColors);
+      phaseOf.set(initialPhaseOf);
+      homeOf.set(initialHomeOf);
+      positionAttr.needsUpdate = true;
+      colorAttr.needsUpdate = true;
+    };
 
     const render = () => {
-      const t = (Date.now() - startEpoch) / 1000;
+      if (pendingEpoch && pendingEpoch !== epoch) {
+        resetSimulation(pendingEpoch);
+        pendingEpoch = null;
+      }
+
       const motionScale = reduced ? 0.5 : 1;
 
       let infos: WindowInfo[] = [];
@@ -541,6 +585,7 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
         pairSizeY = pairSizeX * 0.6;
       }
 
+      let mergeTarget = 0;
       if (coreCount >= 2) {
         let minDist2 = Infinity;
         for (let i = 0; i < coreCount; i++) {
@@ -553,13 +598,190 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
           }
         }
         const minDist = Math.sqrt(minDist2);
-        const mergeTarget = THREE.MathUtils.clamp(1 - minDist / 8, 0, 1);
-        mergeValue += (mergeTarget - mergeValue) * 0.06;
-      } else {
-        mergeValue += (0 - mergeValue) * 0.06;
+        mergeTarget = THREE.MathUtils.clamp(1 - minDist / 8, 0, 1);
       }
 
-      const pairAlpha = pairMode ? THREE.MathUtils.clamp(1 - mergeValue, 0, 1) : 0;
+      const now = Date.now();
+      const targetStep = Math.max(0, Math.floor(((now - epoch) / 1000) / SIM_STEP_S));
+      let stepsToRun = targetStep - simStep;
+
+      if (stepsToRun > MAX_CATCH_UP_STEPS) {
+        try {
+          localStorage.setItem(START_KEY, String(now));
+        } catch {
+          // ignore
+        }
+        channel?.postMessage({ restart: now });
+        resetSimulation(now);
+        stepsToRun = 0;
+      }
+
+      for (let step = 0; step < stepsToRun; step++) {
+        const t = (simStep + 1) * SIM_STEP_S;
+        mergeValue += (mergeTarget - mergeValue) * 0.06;
+
+        const pairAlpha = pairMode ? THREE.MathUtils.clamp(1 - mergeValue, 0, 1) : 0;
+
+        const baseAttract = (0.012 + mergeValue * 0.01 + pairAlpha * 0.008) * motionScale;
+        const orbitStrength = (0.006 + mergeValue * 0.006) * motionScale;
+        const bridgeStrength = 0.036 * mergeValue * motionScale;
+        const damping = useMultiWindow ? 0.981 - pairAlpha * 0.006 : 0.987;
+        const maxSpeed = (useMultiWindow ? 0.18 : 0.22) * motionScale;
+        const boundary = pairMode
+          ? Math.min(initialSpan * 1.35, Math.max(initialSpan, pairSeparation * 0.5 + 3.5))
+          : initialSpan * (useMultiWindow ? 1.18 : 1.7);
+        const boundaryPull = useMultiWindow ? 0.01 + pairAlpha * 0.012 : 0.002;
+        const boundaryDamp = useMultiWindow ? 0.82 - pairAlpha * 0.08 : 0.92;
+        const noiseAmp = (useMultiWindow ? 0.0018 : 0.0025) * motionScale;
+        const pairFollow = (0.009 + pairAlpha * 0.003) * pairAlpha * motionScale;
+        const pairFlow = (0.02 + pairAlpha * 0.008) * pairAlpha * motionScale;
+
+        for (let i = 0; i < particleCount; i++) {
+          const idx = i * 3;
+          let px = positions[idx + 0];
+          let py = positions[idx + 1];
+          let pz = positions[idx + 2];
+          let vx = velocities[idx + 0];
+          let vy = velocities[idx + 1];
+          let vz = velocities[idx + 2];
+
+          let nearest = 0;
+          let second = 0;
+          let minD2 = Infinity;
+          let secondD2 = Infinity;
+
+          for (let c = 0; c < coreCount; c++) {
+            const dx = corePositions[c].x - px;
+            const dy = corePositions[c].y - py;
+            const dz = corePositions[c].z - pz;
+            const d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 < minD2) {
+              secondD2 = minD2;
+              second = nearest;
+              minD2 = d2;
+              nearest = c;
+            } else if (d2 < secondD2) {
+              secondD2 = d2;
+              second = c;
+            }
+          }
+
+          const core = corePositions[nearest];
+          const dx = core.x - px;
+          const dy = core.y - py;
+          const dz = core.z - pz;
+          const dist = Math.sqrt(minD2) + 0.001;
+          const attract = baseAttract / (1.2 + minD2);
+
+          const orbitDir = homeOf[i] % 2 === 0 ? 1 : -1;
+          const orbitBlend = 1 - pairAlpha * 0.9;
+          const orbitX = (-dy / dist) * orbitStrength * orbitDir * orbitBlend;
+          const orbitY = (dx / dist) * orbitStrength * orbitDir * orbitBlend;
+
+          const noise = Math.sin(t * 0.6 + phaseOf[i]) * noiseAmp * (1 - pairAlpha * 0.85);
+          vx = vx * damping + dx * attract + orbitX + noise;
+          vy = vy * damping + dy * attract + orbitY + noise;
+          vz = vz * damping + dz * attract * 0.6 + Math.cos(t * 0.5 + phaseOf[i]) * 0.0015;
+
+          const repelRadius = 0.75;
+          if (dist < repelRadius) {
+            const repelFactor = (repelRadius - dist) / repelRadius;
+            const repelStrength = 0.014 * repelFactor * motionScale;
+            vx -= (dx / dist) * repelStrength;
+            vy -= (dy / dist) * repelStrength;
+            vz -= (dz / dist) * repelStrength;
+          }
+
+          if (coreCount >= 2) {
+            const other = corePositions[second];
+            const odx = other.x - px;
+            const ody = other.y - py;
+            const odz = other.z - pz;
+            const bridge = bridgeStrength / (1.2 + secondD2);
+            vx += odx * bridge;
+            vy += ody * bridge;
+            vz += odz * bridge * 0.6;
+          }
+
+          if (pairMode && pairAlpha > 0) {
+            const phase = phaseOf[i] + t * (1.4 + (i % 7) * 0.08) * orbitDir;
+            const s = Math.sin(phase);
+            const c = Math.cos(phase);
+            const u = s;
+            const v = s * c; // [-0.5..0.5]
+            const du = c;
+            const dv = c * c - s * s;
+
+            const targetX = pairMid.x + pairAxis.x * (u * pairSizeX) + pairPerp.x * (v * pairSizeY * 2);
+            const targetY = pairMid.y + pairAxis.y * (u * pairSizeX) + pairPerp.y * (v * pairSizeY * 2);
+            const targetZ = Math.sin(phase * 0.9) * 0.25;
+
+            const tx = pairAxis.x * (du * pairSizeX) + pairPerp.x * (dv * pairSizeY * 2);
+            const ty = pairAxis.y * (du * pairSizeX) + pairPerp.y * (dv * pairSizeY * 2);
+            const tLen = Math.sqrt(tx * tx + ty * ty) + 0.0001;
+
+            vx += (targetX - px) * pairFollow + (tx / tLen) * pairFlow;
+            vy += (targetY - py) * pairFollow + (ty / tLen) * pairFlow;
+            vz += (targetZ - pz) * pairFollow * 0.8;
+          }
+
+          const speed2 = vx * vx + vy * vy + vz * vz;
+          if (speed2 > maxSpeed * maxSpeed) {
+            const s = maxSpeed / Math.sqrt(speed2);
+            vx *= s;
+            vy *= s;
+            vz *= s;
+          }
+
+          px += vx;
+          py += vy;
+          pz += vz;
+
+          let nearestAfter = 0;
+          let minAfterD2 = Infinity;
+          for (let c = 0; c < coreCount; c++) {
+            const dx = corePositions[c].x - px;
+            const dy = corePositions[c].y - py;
+            const dz = corePositions[c].z - pz;
+            const d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 < minAfterD2) {
+              minAfterD2 = d2;
+              nearestAfter = c;
+            }
+          }
+
+          const coreAfter = corePositions[nearestAfter];
+          const bdx = coreAfter.x - px;
+          const bdy = coreAfter.y - py;
+          const bdz = coreAfter.z - pz;
+          const distAfter = Math.sqrt(minAfterD2) + 0.001;
+          if (distAfter > boundary) {
+            const pullBack = (distAfter - boundary) * boundaryPull;
+            px += (bdx / distAfter) * pullBack;
+            py += (bdy / distAfter) * pullBack;
+            pz += (bdz / distAfter) * pullBack;
+            vx *= boundaryDamp;
+            vy *= boundaryDamp;
+            vz *= boundaryDamp;
+          }
+
+          positions[idx + 0] = px;
+          positions[idx + 1] = py;
+          positions[idx + 2] = pz;
+          velocities[idx + 0] = vx;
+          velocities[idx + 1] = vy;
+          velocities[idx + 2] = vz;
+
+          const baseColor = palette[nearestAfter % palette.length];
+          const brightness = 0.3 + 0.7 * Math.exp(-distAfter * 0.25);
+          colors[idx + 0] = baseColor.r * brightness;
+          colors[idx + 1] = baseColor.g * brightness;
+          colors[idx + 2] = baseColor.b * brightness;
+        }
+
+        simStep += 1;
+      }
+
       const coreScale = 0.8 + mergeValue * 0.9;
       for (let i = 0; i < maxCores; i++) {
         const mesh = coreMeshes[i];
@@ -573,168 +795,14 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
         }
       }
 
-      const baseAttract = (0.012 + mergeValue * 0.01) * motionScale;
-      const orbitStrength = (0.006 + mergeValue * 0.006) * motionScale;
-      const bridgeStrength = 0.036 * mergeValue * motionScale;
-      const damping = useMultiWindow ? 0.981 : 0.987;
-      const maxSpeed = (useMultiWindow ? 0.18 : 0.22) * motionScale;
-      const boundary = pairMode
-        ? THREE.MathUtils.clamp(pairSeparation * 0.55, initialSpan * 1.22, initialSpan * 1.7)
-        : initialSpan * (useMultiWindow ? 1.22 : 1.7);
-      const boundaryPull = useMultiWindow ? 0.01 : 0.002;
-      const boundaryDamp = useMultiWindow ? 0.82 : 0.92;
-      const noiseAmp = (useMultiWindow ? 0.0018 : 0.0025) * motionScale;
-      const pairFollow = (0.0026 + pairAlpha * 0.0012) * pairAlpha * motionScale;
-      const pairFlow = (0.0075 + pairAlpha * 0.002) * pairAlpha * motionScale;
-
-      for (let i = 0; i < particleCount; i++) {
-        const idx = i * 3;
-        let px = positions[idx + 0];
-        let py = positions[idx + 1];
-        let pz = positions[idx + 2];
-        let vx = velocities[idx + 0];
-        let vy = velocities[idx + 1];
-        let vz = velocities[idx + 2];
-
-        let nearest = 0;
-        let second = 0;
-        let minD2 = Infinity;
-        let secondD2 = Infinity;
-
-        for (let c = 0; c < coreCount; c++) {
-          const dx = corePositions[c].x - px;
-          const dy = corePositions[c].y - py;
-          const dz = corePositions[c].z - pz;
-          const d2 = dx * dx + dy * dy + dz * dz;
-          if (d2 < minD2) {
-            secondD2 = minD2;
-            second = nearest;
-            minD2 = d2;
-            nearest = c;
-          } else if (d2 < secondD2) {
-            secondD2 = d2;
-            second = c;
-          }
-        }
-
-        const core = corePositions[nearest];
-        const dx = core.x - px;
-        const dy = core.y - py;
-        const dz = core.z - pz;
-        const dist = Math.sqrt(minD2) + 0.001;
-        const attract = baseAttract / (1.2 + minD2);
-
-        const orbitDir = homeOf[i] % 2 === 0 ? 1 : -1;
-        const orbitBlend = 1 - pairAlpha * 0.85;
-        const orbitX = (-dy / dist) * orbitStrength * orbitDir * orbitBlend;
-        const orbitY = (dx / dist) * orbitStrength * orbitDir * orbitBlend;
-
-        const noise = Math.sin(t * 0.6 + phaseOf[i]) * noiseAmp * (1 - pairAlpha * 0.65);
-        vx = vx * damping + dx * attract + orbitX + noise;
-        vy = vy * damping + dy * attract + orbitY + noise;
-        vz = vz * damping + dz * attract * 0.6 + Math.cos(t * 0.5 + phaseOf[i]) * 0.0015;
-
-        const repelRadius = 0.75;
-        if (dist < repelRadius) {
-          const repelFactor = (repelRadius - dist) / repelRadius;
-          const repelStrength = 0.014 * repelFactor * motionScale;
-          vx -= (dx / dist) * repelStrength;
-          vy -= (dy / dist) * repelStrength;
-          vz -= (dz / dist) * repelStrength;
-        }
-
-        if (coreCount >= 2) {
-          const other = corePositions[second];
-          const odx = other.x - px;
-          const ody = other.y - py;
-          const odz = other.z - pz;
-          const bridge = bridgeStrength / (1.2 + secondD2);
-          vx += odx * bridge;
-          vy += ody * bridge;
-          vz += odz * bridge * 0.6;
-        }
-
-        if (pairMode && pairAlpha > 0) {
-          const phase = phaseOf[i] + t * (0.8 + (i % 7) * 0.03) * orbitDir;
-          const s = Math.sin(phase);
-          const c = Math.cos(phase);
-          const u = s;
-          const v = s * c; // [-0.5..0.5]
-          const du = c;
-          const dv = c * c - s * s;
-
-          const targetX = pairMid.x + pairAxis.x * (u * pairSizeX) + pairPerp.x * (v * pairSizeY * 2);
-          const targetY = pairMid.y + pairAxis.y * (u * pairSizeX) + pairPerp.y * (v * pairSizeY * 2);
-          const targetZ = Math.sin(phase * 0.9) * 0.25;
-
-          const tx = pairAxis.x * (du * pairSizeX) + pairPerp.x * (dv * pairSizeY * 2);
-          const ty = pairAxis.y * (du * pairSizeX) + pairPerp.y * (dv * pairSizeY * 2);
-          const tLen = Math.sqrt(tx * tx + ty * ty) + 0.0001;
-
-          vx += (targetX - px) * pairFollow + (tx / tLen) * pairFlow;
-          vy += (targetY - py) * pairFollow + (ty / tLen) * pairFlow;
-          vz += (targetZ - pz) * pairFollow * 0.8;
-        }
-
-        const speed2 = vx * vx + vy * vy + vz * vz;
-        if (speed2 > maxSpeed * maxSpeed) {
-          const s = maxSpeed / Math.sqrt(speed2);
-          vx *= s;
-          vy *= s;
-          vz *= s;
-        }
-
-        px += vx;
-        py += vy;
-        pz += vz;
-
-        let nearestAfter = 0;
-        let minAfterD2 = Infinity;
-        for (let c = 0; c < coreCount; c++) {
-          const dx = corePositions[c].x - px;
-          const dy = corePositions[c].y - py;
-          const dz = corePositions[c].z - pz;
-          const d2 = dx * dx + dy * dy + dz * dz;
-          if (d2 < minAfterD2) {
-            minAfterD2 = d2;
-            nearestAfter = c;
-          }
-        }
-
-        const coreAfter = corePositions[nearestAfter];
-        const bdx = coreAfter.x - px;
-        const bdy = coreAfter.y - py;
-        const bdz = coreAfter.z - pz;
-        const distAfter = Math.sqrt(minAfterD2) + 0.001;
-        if (distAfter > boundary) {
-          const pullBack = (distAfter - boundary) * boundaryPull;
-          px += (bdx / distAfter) * pullBack;
-          py += (bdy / distAfter) * pullBack;
-          pz += (bdz / distAfter) * pullBack;
-          vx *= boundaryDamp;
-          vy *= boundaryDamp;
-          vz *= boundaryDamp;
-        }
-
-        positions[idx + 0] = px;
-        positions[idx + 1] = py;
-        positions[idx + 2] = pz;
-        velocities[idx + 0] = vx;
-        velocities[idx + 1] = vy;
-        velocities[idx + 2] = vz;
-
-        const baseColor = palette[nearestAfter % palette.length];
-        const brightness = 0.3 + 0.7 * Math.exp(-distAfter * 0.25);
-        colors[idx + 0] = baseColor.r * brightness;
-        colors[idx + 1] = baseColor.g * brightness;
-        colors[idx + 2] = baseColor.b * brightness;
+      if (stepsToRun > 0) {
+        positionAttr.needsUpdate = true;
+        colorAttr.needsUpdate = true;
       }
 
-      positionAttr.needsUpdate = true;
-      colorAttr.needsUpdate = true;
-
-      particles.rotation.z = useMultiWindow ? 0 : t * 0.012;
-      stars.rotation.y = t * 0.01;
+      const tNow = simStep * SIM_STEP_S;
+      particles.rotation.z = useMultiWindow ? 0 : tNow * 0.012;
+      stars.rotation.y = tNow * 0.01;
 
       renderer.render(scene, camera);
       frameId = requestAnimationFrame(render);
