@@ -404,6 +404,7 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
     };
 
     const corePositions = Array.from({ length: maxCores }, () => new THREE.Vector3());
+    const coreCenter = new THREE.Vector3();
     let mergeValue = 0;
 
     const render = () => {
@@ -429,6 +430,15 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
         for (let i = 0; i < coreCount; i++) {
           corePositions[i].copy(toWorld(activeInfos[i], bounds));
         }
+      }
+
+      coreCenter.set(0, 0, 0);
+      for (let i = 0; i < coreCount; i++) coreCenter.add(corePositions[i]);
+      coreCenter.multiplyScalar(1 / coreCount);
+
+      let maxCoreRadius = 0;
+      for (let i = 0; i < coreCount; i++) {
+        maxCoreRadius = Math.max(maxCoreRadius, coreCenter.distanceTo(corePositions[i]));
       }
 
       if (coreCount >= 2) {
@@ -465,9 +475,14 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
       const baseAttract = (0.012 + mergeValue * 0.01) * motionScale;
       const orbitStrength = (0.006 + mergeValue * 0.006) * motionScale;
       const bridgeStrength = (0.004 + mergeValue * 0.028) * motionScale;
-      const damping = useMultiWindow ? 0.983 : 0.987;
-      const maxSpeed = 0.22 * motionScale;
-      const boundary = initialSpan * (useMultiWindow ? 1.8 : 1.7);
+      const damping = useMultiWindow ? 0.981 : 0.987;
+      const maxSpeed = (useMultiWindow ? 0.18 : 0.22) * motionScale;
+      const baseBoundary = initialSpan * (useMultiWindow ? 1.55 : 1.7);
+      const boundary = useMultiWindow
+        ? Math.min(55, Math.max(baseBoundary, maxCoreRadius + initialSpan * 1.1))
+        : baseBoundary;
+      const boundaryPull = useMultiWindow ? 0.004 : 0.002;
+      const boundaryDamp = useMultiWindow ? 0.85 : 0.92;
 
       for (let i = 0; i < particleCount; i++) {
         const idx = i * 3;
@@ -515,10 +530,10 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
         vy = vy * damping + dy * attract + orbitY + noise;
         vz = vz * damping + dz * attract * 0.6 + Math.cos(t * 0.5 + phaseOf[i]) * 0.0015;
 
-        const repelRadius = 1.1;
+        const repelRadius = 0.75;
         if (dist < repelRadius) {
           const repelFactor = (repelRadius - dist) / repelRadius;
-          const repelStrength = 0.02 * repelFactor * motionScale;
+          const repelStrength = 0.014 * repelFactor * motionScale;
           vx -= (dx / dist) * repelStrength;
           vy -= (dy / dist) * repelStrength;
           vz -= (dz / dist) * repelStrength;
@@ -547,16 +562,19 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
         py += vy;
         pz += vz;
 
-        const r2 = px * px + py * py + pz * pz;
+        const cx = px - coreCenter.x;
+        const cy = py - coreCenter.y;
+        const cz = pz - coreCenter.z;
+        const r2 = cx * cx + cy * cy + cz * cz;
         if (r2 > boundary * boundary) {
           const r = Math.sqrt(r2);
-          const pullBack = (r - boundary) * 0.002;
-          px -= (px / r) * pullBack;
-          py -= (py / r) * pullBack;
-          pz -= (pz / r) * pullBack;
-          vx *= 0.92;
-          vy *= 0.92;
-          vz *= 0.92;
+          const pullBack = (r - boundary) * boundaryPull;
+          px -= (cx / r) * pullBack;
+          py -= (cy / r) * pullBack;
+          pz -= (cz / r) * pullBack;
+          vx *= boundaryDamp;
+          vy *= boundaryDamp;
+          vz *= boundaryDamp;
         }
 
         positions[idx + 0] = px;
@@ -576,7 +594,7 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
       positionAttr.needsUpdate = true;
       colorAttr.needsUpdate = true;
 
-      particles.rotation.z = t * 0.012;
+      particles.rotation.z = useMultiWindow ? 0 : t * 0.012;
       stars.rotation.y = t * 0.01;
 
       renderer.render(scene, camera);
