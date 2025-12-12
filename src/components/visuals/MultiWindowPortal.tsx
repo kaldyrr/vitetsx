@@ -88,8 +88,8 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
     const scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2(0x050814, 0.03);
 
-    const camera = new THREE.PerspectiveCamera(55, initialWidth / initialHeight, 0.1, 200);
-    camera.position.set(0, 0, 14);
+    const camera = new THREE.PerspectiveCamera(48, initialWidth / initialHeight, 0.1, 200);
+    camera.position.set(0, 0, 12);
 
     const ambient = new THREE.AmbientLight(0xffffff, 0.6);
     const key = new THREE.DirectionalLight(0xff5efb, 1.2);
@@ -178,7 +178,7 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
     particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     particleGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     const particleMat = new THREE.PointsMaterial({
-      size: 0.085,
+      size: 0.12,
       map: spriteTex,
       transparent: true,
       opacity: 0.95,
@@ -461,12 +461,12 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
         }
       }
 
-      const baseAttract = 0.008 * motionScale;
-      const orbitStrength = 0.004 * motionScale;
-      const bridgeStrength = 0.006 * mergeValue * motionScale;
-      const damping = 0.985;
-      const maxSpeed = 0.18 * motionScale;
-      const boundary = initialSpan * 1.6;
+      const baseAttract = (0.009 + mergeValue * 0.006) * motionScale;
+      const orbitStrength = (0.005 + mergeValue * 0.004) * motionScale;
+      const bridgeStrength = 0.014 * mergeValue * motionScale;
+      const damping = 0.987;
+      const maxSpeed = 0.22 * motionScale;
+      const boundary = initialSpan * (useMultiWindow ? 2.1 : 1.7);
 
       for (let i = 0; i < particleCount; i++) {
         const idx = i * 3;
@@ -503,7 +503,7 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
         const dy = core.y - py;
         const dz = core.z - pz;
         const dist = Math.sqrt(minD2) + 0.001;
-        const attract = baseAttract / (0.6 + minD2);
+        const attract = baseAttract / (1.2 + minD2);
 
         const orbitDir = homeOf[i] % 2 === 0 ? 1 : -1;
         const orbitX = (-dy / dist) * orbitStrength * orbitDir;
@@ -513,6 +513,15 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
         vx = vx * damping + dx * attract + orbitX + noise;
         vy = vy * damping + dy * attract + orbitY + noise;
         vz = vz * damping + dz * attract * 0.6 + Math.cos(t * 0.5 + phaseOf[i]) * 0.0015;
+
+        const repelRadius = 1.1;
+        if (dist < repelRadius) {
+          const repelFactor = (repelRadius - dist) / repelRadius;
+          const repelStrength = 0.02 * repelFactor * motionScale;
+          vx -= (dx / dist) * repelStrength;
+          vy -= (dy / dist) * repelStrength;
+          vz -= (dz / dist) * repelStrength;
+        }
 
         if (coreCount >= 2) {
           const other = corePositions[second];
