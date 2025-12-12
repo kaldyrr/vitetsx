@@ -55,11 +55,16 @@ export const ContactSection = ({ onSubmit }: Props) => {
             отвечу быстро.
           </p>
           <div className="space-y-3 text-sm text-muted">
-            <a className="block text-white hover:text-accent" href="mailto:ivan@example.com">
-              ivan@example.com
+            <a className="block text-white hover:text-accent" href="mailto:vadim@example.com">
+              vadim@example.com
             </a>
             <div className="flex flex-wrap gap-3">
-              <a className="rounded-full border border-white/10 px-3 py-1 hover:border-accent hover:text-white" href="#">
+              <a
+                className="rounded-full border border-white/10 px-3 py-1 hover:border-accent hover:text-white"
+                href="https://github.com/kaldyrr"
+                target="_blank"
+                rel="noreferrer"
+              >
                 GitHub
               </a>
               <a className="rounded-full border border-white/10 px-3 py-1 hover:border-accent hover:text-white" href="#">

@@ -39,7 +39,7 @@ export const HeroSection = ({ onPortfolio, onContact }: Props) => {
             className="space-y-4"
           >
             <GlitchText
-              text="Иван Петров"
+              text="Вадим Павлов"
               className="block text-4xl font-semibold leading-tight text-white md:text-5xl lg:text-6xl"
             />
             <p className="text-lg text-muted md:text-xl">

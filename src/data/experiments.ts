@@ -2,6 +2,14 @@ import type { Experiment } from '../types';
 
 export const experiments: Experiment[] = [
   {
+    id: 'portal',
+    title: 'Неоновый портал',
+    description:
+      'Трёхмерная сцена, которая «склеивается» между окнами. Открой пару окон и разложи их рядом — получится цельный портал.',
+    label: 'webgl / multi-window',
+    intensity: 'bold',
+  },
+  {
     id: 'nodes',
     title: 'Созвездия',
     description: 'Интерактивная сеть узлов, реагирующая на курсор и образующая созвездия.',
