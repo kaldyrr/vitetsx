@@ -11,8 +11,9 @@ type Props = {
 const SEED_KEY = 'neon-portal:seed';
 const START_KEY = 'neon-portal:start';
 const WINDOWS_KEY = 'neon-portal:windows';
+const WINDOW_KEY_PREFIX = 'neon-portal:window:';
 const CHANNEL = 'neon-portal-windows';
-const STALE_MS = 2200;
+const STALE_MS = 15_000;
 const HEARTBEAT_MS = 420;
 
 type WindowInfo = {
@@ -230,13 +231,39 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
     });
 
     const readStoredWindows = (): WindowInfo[] => {
+      const collected: WindowInfo[] = [];
+
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (!key?.startsWith(WINDOW_KEY_PREFIX)) continue;
+          const raw = localStorage.getItem(key);
+          if (!raw) continue;
+          try {
+            collected.push(JSON.parse(raw) as WindowInfo);
+          } catch {
+            // ignore malformed payloads
+          }
+        }
+      } catch {
+        // ignore access errors
+      }
+
       try {
         const raw = localStorage.getItem(WINDOWS_KEY);
         const list = raw ? (JSON.parse(raw) as WindowInfo[]) : [];
-        return Array.isArray(list) ? list : [];
+        if (Array.isArray(list)) collected.push(...list);
       } catch {
-        return [];
+        // ignore legacy malformed payloads
       }
+
+      const byId = new Map<string, WindowInfo>();
+      collected.forEach((info) => {
+        if (!info || typeof info.id !== 'string') return;
+        const prev = byId.get(info.id);
+        if (!prev || info.ts > prev.ts) byId.set(info.id, info);
+      });
+      return Array.from(byId.values());
     };
 
     const pruneWindows = (list: WindowInfo[]) => {
@@ -245,41 +272,99 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
         (info) =>
           info &&
           typeof info.id === 'string' &&
+          Number.isFinite(info.x) &&
+          Number.isFinite(info.y) &&
+          Number.isFinite(info.width) &&
+          Number.isFinite(info.height) &&
+          Number.isFinite(info.ts) &&
           now - info.ts < STALE_MS &&
           info.width > 0 &&
           info.height > 0,
       );
     };
 
-    const writeStoredWindows = (list: WindowInfo[]) => {
-      localStorage.setItem(WINDOWS_KEY, JSON.stringify(list));
-    };
-
     const syncSelfWindow = () => {
       const selfInfo = getWindowInfo();
+
+      try {
+        localStorage.setItem(`${WINDOW_KEY_PREFIX}${selfId}`, JSON.stringify(selfInfo));
+      } catch {
+        // ignore storage quota or privacy mode failures
+      }
+
       const stored = pruneWindows(readStoredWindows());
       stored.forEach((info) => windows.set(info.id, info));
       windows.set(selfId, selfInfo);
 
       const merged = pruneWindows(Array.from(windows.values()));
-      writeStoredWindows(merged);
       windows.clear();
       merged.forEach((info) => windows.set(info.id, info));
       setWindowCount((prev) => (prev !== windows.size ? windows.size : prev));
+
+      try {
+        const now = Date.now();
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (!key?.startsWith(WINDOW_KEY_PREFIX)) continue;
+          const raw = localStorage.getItem(key);
+          if (!raw) {
+            keysToRemove.push(key);
+            continue;
+          }
+          try {
+            const info = JSON.parse(raw) as WindowInfo;
+            if (!info || typeof info.id !== 'string' || info.ts <= 0 || now - info.ts >= STALE_MS) {
+              keysToRemove.push(key);
+            }
+          } catch {
+            keysToRemove.push(key);
+          }
+        }
+        keysToRemove.forEach((key) => localStorage.removeItem(key));
+      } catch {
+        // ignore cleanup failures
+      }
     };
 
     let heartbeatId: number | null = null;
     let channel: BroadcastChannel | null = null;
     let beforeUnloadHandler: (() => void) | null = null;
     const storageListener = (event: StorageEvent) => {
-      if (event.key !== WINDOWS_KEY || !event.newValue) return;
+      if (!event.key) return;
+
+      if (event.key === WINDOWS_KEY && event.newValue) {
+        try {
+          const list = pruneWindows(JSON.parse(event.newValue) as WindowInfo[]);
+          list.forEach((info) => windows.set(info.id, info));
+          setWindowCount((prev) => (prev !== windows.size ? windows.size : prev));
+        } catch {
+          // ignore malformed payloads
+        }
+        return;
+      }
+
+      if (!event.key.startsWith(WINDOW_KEY_PREFIX)) return;
+
+      const idFromKey = event.key.slice(WINDOW_KEY_PREFIX.length);
+      if (!event.newValue) {
+        windows.delete(idFromKey);
+        setWindowCount((prev) => (prev !== windows.size ? windows.size : prev));
+        return;
+      }
+
       try {
-        const list = pruneWindows(JSON.parse(event.newValue) as WindowInfo[]);
-        windows.clear();
-        list.forEach((info) => windows.set(info.id, info));
+        const parsed = JSON.parse(event.newValue) as WindowInfo;
+        const [next] = pruneWindows([parsed]);
+        if (!next || next.ts <= 0) {
+          windows.delete(parsed?.id ?? idFromKey);
+        } else {
+          windows.set(next.id, next);
+        }
         setWindowCount((prev) => (prev !== windows.size ? windows.size : prev));
       } catch {
-        // ignore malformed payloads
+        windows.delete(idFromKey);
+        setWindowCount((prev) => (prev !== windows.size ? windows.size : prev));
       }
     };
 
@@ -292,7 +377,12 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
         channel.onmessage = (event) => {
           const payload = event.data as { info?: WindowInfo } | undefined;
           if (!payload?.info) return;
-          windows.set(payload.info.id, payload.info);
+          const [next] = pruneWindows([payload.info]);
+          if (!next || next.ts <= 0) {
+            windows.delete(payload.info.id);
+          } else {
+            windows.set(next.id, next);
+          }
           setWindowCount((prev) => (prev !== windows.size ? windows.size : prev));
         };
       }
@@ -303,8 +393,11 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
       }, HEARTBEAT_MS);
 
       beforeUnloadHandler = () => {
-        const list = pruneWindows(readStoredWindows()).filter((info) => info.id !== selfId);
-        writeStoredWindows(list);
+        try {
+          localStorage.removeItem(`${WINDOW_KEY_PREFIX}${selfId}`);
+        } catch {
+          // ignore
+        }
         channel?.postMessage({ info: { ...getWindowInfo(), ts: 0 } });
       };
       window.addEventListener('beforeunload', beforeUnloadHandler);
@@ -404,7 +497,6 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
     };
 
     const corePositions = Array.from({ length: maxCores }, () => new THREE.Vector3());
-    const coreCenter = new THREE.Vector3();
     let mergeValue = 0;
 
     const render = () => {
@@ -430,15 +522,6 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
         for (let i = 0; i < coreCount; i++) {
           corePositions[i].copy(toWorld(activeInfos[i], bounds));
         }
-      }
-
-      coreCenter.set(0, 0, 0);
-      for (let i = 0; i < coreCount; i++) coreCenter.add(corePositions[i]);
-      coreCenter.multiplyScalar(1 / coreCount);
-
-      let maxCoreRadius = 0;
-      for (let i = 0; i < coreCount; i++) {
-        maxCoreRadius = Math.max(maxCoreRadius, coreCenter.distanceTo(corePositions[i]));
       }
 
       if (coreCount >= 2) {
@@ -474,15 +557,13 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
 
       const baseAttract = (0.012 + mergeValue * 0.01) * motionScale;
       const orbitStrength = (0.006 + mergeValue * 0.006) * motionScale;
-      const bridgeStrength = (0.004 + mergeValue * 0.028) * motionScale;
+      const bridgeStrength = 0.036 * mergeValue * motionScale;
       const damping = useMultiWindow ? 0.981 : 0.987;
       const maxSpeed = (useMultiWindow ? 0.18 : 0.22) * motionScale;
-      const baseBoundary = initialSpan * (useMultiWindow ? 1.55 : 1.7);
-      const boundary = useMultiWindow
-        ? Math.min(55, Math.max(baseBoundary, maxCoreRadius + initialSpan * 1.1))
-        : baseBoundary;
-      const boundaryPull = useMultiWindow ? 0.004 : 0.002;
-      const boundaryDamp = useMultiWindow ? 0.85 : 0.92;
+      const boundary = initialSpan * (useMultiWindow ? 1.22 : 1.7);
+      const boundaryPull = useMultiWindow ? 0.01 : 0.002;
+      const boundaryDamp = useMultiWindow ? 0.82 : 0.92;
+      const noiseAmp = (useMultiWindow ? 0.0018 : 0.0025) * motionScale;
 
       for (let i = 0; i < particleCount; i++) {
         const idx = i * 3;
@@ -525,7 +606,7 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
         const orbitX = (-dy / dist) * orbitStrength * orbitDir;
         const orbitY = (dx / dist) * orbitStrength * orbitDir;
 
-        const noise = Math.sin(t * 0.6 + phaseOf[i]) * 0.0025;
+        const noise = Math.sin(t * 0.6 + phaseOf[i]) * noiseAmp;
         vx = vx * damping + dx * attract + orbitX + noise;
         vy = vy * damping + dy * attract + orbitY + noise;
         vz = vz * damping + dz * attract * 0.6 + Math.cos(t * 0.5 + phaseOf[i]) * 0.0015;
@@ -562,16 +643,29 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
         py += vy;
         pz += vz;
 
-        const cx = px - coreCenter.x;
-        const cy = py - coreCenter.y;
-        const cz = pz - coreCenter.z;
-        const r2 = cx * cx + cy * cy + cz * cz;
-        if (r2 > boundary * boundary) {
-          const r = Math.sqrt(r2);
-          const pullBack = (r - boundary) * boundaryPull;
-          px -= (cx / r) * pullBack;
-          py -= (cy / r) * pullBack;
-          pz -= (cz / r) * pullBack;
+        let nearestAfter = 0;
+        let minAfterD2 = Infinity;
+        for (let c = 0; c < coreCount; c++) {
+          const dx = corePositions[c].x - px;
+          const dy = corePositions[c].y - py;
+          const dz = corePositions[c].z - pz;
+          const d2 = dx * dx + dy * dy + dz * dz;
+          if (d2 < minAfterD2) {
+            minAfterD2 = d2;
+            nearestAfter = c;
+          }
+        }
+
+        const coreAfter = corePositions[nearestAfter];
+        const bdx = coreAfter.x - px;
+        const bdy = coreAfter.y - py;
+        const bdz = coreAfter.z - pz;
+        const distAfter = Math.sqrt(minAfterD2) + 0.001;
+        if (distAfter > boundary) {
+          const pullBack = (distAfter - boundary) * boundaryPull;
+          px += (bdx / distAfter) * pullBack;
+          py += (bdy / distAfter) * pullBack;
+          pz += (bdz / distAfter) * pullBack;
           vx *= boundaryDamp;
           vy *= boundaryDamp;
           vz *= boundaryDamp;
@@ -584,8 +678,8 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
         velocities[idx + 1] = vy;
         velocities[idx + 2] = vz;
 
-        const baseColor = palette[nearest % palette.length];
-        const brightness = 0.3 + 0.7 * Math.exp(-dist * 0.25);
+        const baseColor = palette[nearestAfter % palette.length];
+        const brightness = 0.3 + 0.7 * Math.exp(-distAfter * 0.25);
         colors[idx + 0] = baseColor.r * brightness;
         colors[idx + 1] = baseColor.g * brightness;
         colors[idx + 2] = baseColor.b * brightness;
