@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { usePrefersReducedMotion } from '../../hooks/usePrefersReducedMotion';
 
@@ -37,7 +37,8 @@ const mulberry32 = (seed: number) => {
 export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadge = true }: Props) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const reduced = usePrefersReducedMotion();
-  const useMultiWindow = fullscreen && !reduced;
+  const [windowCount, setWindowCount] = useState(1);
+  const useMultiWindow = fullscreen;
 
   const seed = useMemo(() => {
     const fromStorage = Number(localStorage.getItem(SEED_KEY));
@@ -290,6 +291,7 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
       writeStoredWindows(merged);
       windows.clear();
       merged.forEach((info) => windows.set(info.id, info));
+      setWindowCount((prev) => (prev !== windows.size ? windows.size : prev));
     };
 
     let heartbeatId: number | null = null;
@@ -301,6 +303,7 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
         const list = pruneWindows(JSON.parse(event.newValue) as WindowInfo[]);
         windows.clear();
         list.forEach((info) => windows.set(info.id, info));
+        setWindowCount((prev) => (prev !== windows.size ? windows.size : prev));
       } catch {
         // ignore malformed payloads
       }
@@ -316,6 +319,7 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
           const payload = event.data as { info?: WindowInfo } | undefined;
           if (!payload?.info) return;
           windows.set(payload.info.id, payload.info);
+          setWindowCount((prev) => (prev !== windows.size ? windows.size : prev));
         };
       }
 
@@ -332,6 +336,7 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
       window.addEventListener('beforeunload', beforeUnloadHandler);
     } else {
       windows.set(selfId, getWindowInfo());
+      setWindowCount(1);
     }
 
     const computeBounds = (infos: WindowInfo[]) => {
@@ -456,7 +461,7 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
       <canvas ref={canvasRef} className="h-full w-full" aria-hidden />
       {showBadge ? (
         <div className="pointer-events-none absolute left-3 top-3 rounded-full border border-white/10 bg-black/40 px-3 py-1 text-[10px] uppercase tracking-[0.14em] text-white/80 backdrop-blur">
-          Неоновый портал
+          {useMultiWindow && windowCount > 1 ? `Окон в портале: ${windowCount}` : 'Неоновый портал'}
         </div>
       ) : null}
     </div>
