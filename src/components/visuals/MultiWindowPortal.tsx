@@ -282,11 +282,14 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
 
     const syncSelfWindow = () => {
       const selfInfo = getWindowInfo();
-      const list = pruneWindows(readStoredWindows()).filter((info) => info.id !== selfId);
-      list.push(selfInfo);
-      writeStoredWindows(list);
+      const stored = pruneWindows(readStoredWindows());
+      stored.forEach((info) => windows.set(info.id, info));
+      windows.set(selfId, selfInfo);
+
+      const merged = pruneWindows(Array.from(windows.values()));
+      writeStoredWindows(merged);
       windows.clear();
-      list.forEach((info) => windows.set(info.id, info));
+      merged.forEach((info) => windows.set(info.id, info));
     };
 
     let heartbeatId: number | null = null;
