@@ -10,6 +10,19 @@ type Props = {
 
 const SEED_KEY = 'neon-portal:seed';
 const START_KEY = 'neon-portal:start';
+const WINDOWS_KEY = 'neon-portal:windows';
+const CHANNEL = 'neon-portal-windows';
+const STALE_MS = 2200;
+const HEARTBEAT_MS = 420;
+
+type WindowInfo = {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  ts: number;
+};
 
 const mulberry32 = (seed: number) => {
   let t = seed;
@@ -24,6 +37,7 @@ const mulberry32 = (seed: number) => {
 export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadge = true }: Props) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const reduced = usePrefersReducedMotion();
+  const useMultiWindow = fullscreen && !reduced;
 
   const seed = useMemo(() => {
     const fromStorage = Number(localStorage.getItem(SEED_KEY));
@@ -227,13 +241,144 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
     const stars = new THREE.Points(starsGeo, starsMat);
     scene.add(stars);
 
+    const selfId =
+      (globalThis.crypto as Crypto | undefined)?.randomUUID?.() ?? Math.random().toString(36).slice(2);
+    const windows = new Map<string, WindowInfo>();
+
+    const getWindowInfo = (): WindowInfo => ({
+      id: selfId,
+      x: window.screenX ?? (window as any).screenLeft ?? 0,
+      y: window.screenY ?? (window as any).screenTop ?? 0,
+      width: window.innerWidth,
+      height: window.innerHeight,
+      ts: Date.now(),
+    });
+
+    const readStoredWindows = (): WindowInfo[] => {
+      try {
+        const raw = localStorage.getItem(WINDOWS_KEY);
+        const list = raw ? (JSON.parse(raw) as WindowInfo[]) : [];
+        return Array.isArray(list) ? list : [];
+      } catch {
+        return [];
+      }
+    };
+
+    const pruneWindows = (list: WindowInfo[]) => {
+      const now = Date.now();
+      return list.filter(
+        (info) =>
+          info &&
+          typeof info.id === 'string' &&
+          now - info.ts < STALE_MS &&
+          info.width > 0 &&
+          info.height > 0,
+      );
+    };
+
+    const writeStoredWindows = (list: WindowInfo[]) => {
+      localStorage.setItem(WINDOWS_KEY, JSON.stringify(list));
+    };
+
+    const syncSelfWindow = () => {
+      const selfInfo = getWindowInfo();
+      const list = pruneWindows(readStoredWindows()).filter((info) => info.id !== selfId);
+      list.push(selfInfo);
+      writeStoredWindows(list);
+      windows.clear();
+      list.forEach((info) => windows.set(info.id, info));
+    };
+
+    let heartbeatId: number | null = null;
+    let channel: BroadcastChannel | null = null;
+    let beforeUnloadHandler: (() => void) | null = null;
+    const storageListener = (event: StorageEvent) => {
+      if (event.key !== WINDOWS_KEY || !event.newValue) return;
+      try {
+        const list = pruneWindows(JSON.parse(event.newValue) as WindowInfo[]);
+        windows.clear();
+        list.forEach((info) => windows.set(info.id, info));
+      } catch {
+        // ignore malformed payloads
+      }
+    };
+
+    if (useMultiWindow) {
+      syncSelfWindow();
+      window.addEventListener('storage', storageListener);
+
+      if ('BroadcastChannel' in window) {
+        channel = new BroadcastChannel(CHANNEL);
+        channel.onmessage = (event) => {
+          const payload = event.data as { info?: WindowInfo } | undefined;
+          if (!payload?.info) return;
+          windows.set(payload.info.id, payload.info);
+        };
+      }
+
+      heartbeatId = window.setInterval(() => {
+        syncSelfWindow();
+        channel?.postMessage({ info: getWindowInfo() });
+      }, HEARTBEAT_MS);
+
+      beforeUnloadHandler = () => {
+        const list = pruneWindows(readStoredWindows()).filter((info) => info.id !== selfId);
+        writeStoredWindows(list);
+        channel?.postMessage({ info: { ...getWindowInfo(), ts: 0 } });
+      };
+      window.addEventListener('beforeunload', beforeUnloadHandler);
+    } else {
+      windows.set(selfId, getWindowInfo());
+    }
+
+    const computeBounds = (infos: WindowInfo[]) => {
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      infos.forEach((info) => {
+        minX = Math.min(minX, info.x);
+        minY = Math.min(minY, info.y);
+        maxX = Math.max(maxX, info.x + info.width);
+        maxY = Math.max(maxY, info.y + info.height);
+      });
+      return {
+        minX,
+        minY,
+        totalWidth: Math.max(1, maxX - minX),
+        totalHeight: Math.max(1, maxY - minY),
+      };
+    };
+
     let frameId = 0;
 
     const updateSize = () => {
       const next = getSize();
       renderer.setSize(next.width, next.height, false);
-      camera.aspect = next.width / next.height;
+      if (!useMultiWindow) {
+        camera.aspect = next.width / next.height;
+        camera.updateProjectionMatrix();
+      }
+    };
+
+    const updateViewOffset = () => {
+      const selfInfo = windows.get(selfId) ?? getWindowInfo();
+      const infos = pruneWindows(Array.from(windows.values()).filter((info) => info.ts > 0));
+      const bounds = computeBounds(infos.length ? infos : [selfInfo]);
+      const offsetX = selfInfo.x - bounds.minX;
+      const offsetY = selfInfo.y - bounds.minY;
+
+      camera.aspect = bounds.totalWidth / bounds.totalHeight;
+      camera.setViewOffset(
+        bounds.totalWidth,
+        bounds.totalHeight,
+        offsetX,
+        offsetY,
+        selfInfo.width,
+        selfInfo.height,
+      );
       camera.updateProjectionMatrix();
+      renderer.setSize(selfInfo.width, selfInfo.height, false);
     };
 
     const render = () => {
@@ -259,6 +404,10 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
 
       stars.rotation.y = t * 0.02;
 
+      if (useMultiWindow) {
+        updateViewOffset();
+      }
+
       renderer.render(scene, camera);
       frameId = requestAnimationFrame(render);
     };
@@ -276,6 +425,10 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
 
     return () => {
       cancelAnimationFrame(frameId);
+      if (heartbeatId) window.clearInterval(heartbeatId);
+      window.removeEventListener('storage', storageListener);
+      if (beforeUnloadHandler) window.removeEventListener('beforeunload', beforeUnloadHandler);
+      channel?.close();
       if (fullscreen) window.removeEventListener('resize', handleResize);
       ro?.disconnect();
       portalGeo.dispose();
@@ -293,7 +446,7 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
       });
       renderer.dispose();
     };
-  }, [fullscreen, reduced, seed, startEpoch]);
+  }, [fullscreen, reduced, seed, startEpoch, useMultiWindow]);
 
   return (
     <div className={`relative h-full w-full ${className}`}>

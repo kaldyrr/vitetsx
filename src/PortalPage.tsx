@@ -13,6 +13,11 @@ export const PortalPage = () => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
+  const openAnotherWindow = () => {
+    const portalUrl = `${import.meta.env.BASE_URL}portal.html`;
+    window.open(portalUrl, '_blank', 'popup,width=640,height=520');
+  };
+
   return (
     <div className="relative min-h-screen overflow-hidden">
       <div className="noise" aria-hidden />
@@ -31,8 +36,14 @@ export const PortalPage = () => {
           Мини‑сцена на Three.js: мягкий неон, глубина и пыль частиц. Такой эффект можно аккуратно
           встраивать в интерфейсы и лендинги, чтобы добавить “вау” без перегруза.
         </p>
+        <p className="max-w-2xl text-xs uppercase tracking-[0.18em] text-white/70 md:text-sm">
+          Открой несколько окон и разложи их рядом — увидишь цельную сцену между ними.
+        </p>
         <div className="flex flex-wrap items-center justify-center gap-3">
           <NeonButton href={`${import.meta.env.BASE_URL}`}>Назад в портфолио</NeonButton>
+          <NeonButton variant="ghost" onClick={openAnotherWindow} className="px-5 py-3">
+            Открыть ещё окно
+          </NeonButton>
           <NeonButton
             variant="ghost"
             onClick={() => window.location.reload()}
@@ -50,4 +61,3 @@ export const PortalPage = () => {
     </div>
   );
 };
-
