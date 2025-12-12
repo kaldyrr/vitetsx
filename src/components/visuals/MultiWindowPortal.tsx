@@ -177,8 +177,9 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
     const particleGeo = new THREE.BufferGeometry();
     particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     particleGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    const particleSize = fullscreen ? 0.155 : 0.12;
     const particleMat = new THREE.PointsMaterial({
-      size: 0.12,
+      size: particleSize,
       map: spriteTex,
       transparent: true,
       opacity: 0.95,
@@ -461,12 +462,12 @@ export const MultiWindowPortal = ({ className = '', fullscreen = false, showBadg
         }
       }
 
-      const baseAttract = (0.009 + mergeValue * 0.006) * motionScale;
-      const orbitStrength = (0.005 + mergeValue * 0.004) * motionScale;
-      const bridgeStrength = 0.014 * mergeValue * motionScale;
-      const damping = 0.987;
+      const baseAttract = (0.012 + mergeValue * 0.01) * motionScale;
+      const orbitStrength = (0.006 + mergeValue * 0.006) * motionScale;
+      const bridgeStrength = (0.004 + mergeValue * 0.028) * motionScale;
+      const damping = useMultiWindow ? 0.983 : 0.987;
       const maxSpeed = 0.22 * motionScale;
-      const boundary = initialSpan * (useMultiWindow ? 2.1 : 1.7);
+      const boundary = initialSpan * (useMultiWindow ? 1.8 : 1.7);
 
       for (let i = 0; i < particleCount; i++) {
         const idx = i * 3;
