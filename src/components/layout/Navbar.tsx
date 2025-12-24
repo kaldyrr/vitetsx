@@ -37,7 +37,7 @@ export const Navbar = ({ sections, activeId, onNavigate, theme, onToggleTheme }:
             aria-label="Наверх"
           >
             <span className="h-2 w-2 rounded-full bg-accent shadow-neon" />
-            Вадим Павлов
+            Павлов Вадим Алексеевич
           </button>
           <div className="md:hidden">
             <ThemeToggle theme={theme} onToggle={onToggleTheme} />

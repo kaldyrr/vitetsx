@@ -26,12 +26,12 @@ export const HeroSection = ({ onPortfolio, onContact }: Props) => {
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7 }}
-          className="inline-flex items-center gap-2 self-start rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-muted"
-        >
-          <span className="h-2 w-2 rounded-full bg-accent shadow-neon" />
-          Фронтенд / Креативный код
-        </motion.div>
+            transition={{ duration: 0.7 }}
+            className="inline-flex items-center gap-2 self-start rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-muted"
+          >
+            <span className="h-2 w-2 rounded-full bg-accent shadow-neon" />
+            IT архитектор возможностей
+          </motion.div>
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -39,12 +39,12 @@ export const HeroSection = ({ onPortfolio, onContact }: Props) => {
             className="space-y-4"
           >
             <GlitchText
-              text="Вадим Павлов"
+              text="Павлов Вадим Алексеевич"
               className="block text-4xl font-semibold leading-tight text-white md:text-5xl lg:text-6xl"
             />
             <p className="text-lg text-muted md:text-xl">
-              Креативный фронтенд-разработчик. Создаю неоновые интерфейсы, анимации, интерактивные истории и
-              визуальные эффекты, которые заставляют пользователей залипать.
+              IT архитектор возможностей. Проектирую архитектуру цифровых продуктов и платформ, соединяя бизнес-цели,
+              технологии и опыт пользователей.
             </p>
           </motion.div>
           <motion.div
